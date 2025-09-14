@@ -82,20 +82,20 @@ export async function POST(req: NextRequest) {
       "-loglevel", "error",
       "-y",
       "-i", inPath,
-
-      // Video (ok if audio-only; ffmpeg will create a tiny black video stream)
+    
+      // More memory-efficient video settings
       "-c:v", "libx264",
+      "-preset", "ultrafast",     // Faster encoding, less memory
+      "-crf", "28",               // Lower quality but smaller file
       "-pix_fmt", "yuv420p",
-      "-r", String(FPS),
-
+      "-r", "15",                 // Reduced frame rate from 30 to 15
+      "-vf", "scale=720:720",     // Smaller resolution
+    
       // Audio
       "-c:a", "aac",
-      "-b:a", "192k",
-
-      // Make MP4 seek fast on the web
+      "-b:a", "128k",             // Reduced bitrate from 192k
+    
       "-movflags", "+faststart",
-
-      // Output file
       outPath,
     ];
 
