@@ -9,7 +9,6 @@ import path from "path";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-
 const FPS = 30;
 
 /** Choose a safe temp path. */
@@ -18,8 +17,8 @@ function tmpPath(ext: string) {
   return path.join(os.tmpdir(), `audiograffiti-${id}.${ext}`);
 }
 
-/** Resolve ffmpeg via env first, then ffmpeg-static. */
-async function resolveFfmpegPath(): Promise<{ path: string; source: "env" | "static" }> {
+/** Resolve ffmpeg via env first, then system ffmpeg. */
+async function resolveFfmpegPath(): Promise<{ path: string; source: "env" | "system" }> {
   const envPath = process.env.FFMPEG_PATH?.trim();
   if (envPath) {
     try {
@@ -31,12 +30,9 @@ async function resolveFfmpegPath(): Promise<{ path: string; source: "env" | "sta
       // fall through
     }
   }
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const ffmpegStatic = require("ffmpeg-static") as string | undefined;
-    if (ffmpegStatic) return { path: ffmpegStatic, source: "static" };
-  } catch {}
-  throw new Error("ffmpeg not found. Set FFMPEG_PATH or install ffmpeg-static.");
+  
+  // Use system ffmpeg (available on Render)
+  return { path: "ffmpeg", source: "system" };
 }
 
 export async function POST(req: NextRequest) {
@@ -44,7 +40,7 @@ export async function POST(req: NextRequest) {
   let triedPath = "";
   let stderrBuf: Buffer[] = [];
 
-  // temp files we’ll clean up
+  // temp files we'll clean up
   let inPath: string | null = null;
   let outPath: string | null = null;
 
