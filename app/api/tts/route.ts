@@ -9,11 +9,14 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /* ------------------ CONFIG ------------------ */
-const MODEL = process.env.TTS_MODEL?.trim() || "tts-1"; // lock to tts-1
-const DEFAULT_FORMAT = "mp3"; // mp3|wav|ogg
+const MODEL = (process.env.TTS_MODEL || "tts-1").trim();        // stable TTS model
+const DEFAULT_FORMAT: "mp3" | "wav" | "ogg" = "mp3";
+const DEFAULT_VOICE = (process.env.TTS_DEFAULT_VOICE || "nova").trim();
+
 const CACHE_DIR =
-  process.env.TTS_CACHE_DIR?.trim() ||
-  path.join(process.cwd(), ".next", "tts-cache"); // local-friendly default
+  (process.env.TTS_CACHE_DIR?.trim()) ||
+  path.join(process.cwd(), ".next", "tts-cache");
+
 const TTL_HOURS = Number(process.env.TTS_CACHE_TTL_HOURS || 720); // 30 days
 const TTL_MS = TTL_HOURS * 60 * 60 * 1000;
 
@@ -55,38 +58,32 @@ async function readFreshFileIfAny(p: string) {
 /* ------------------ HANDLER ------------------ */
 export async function POST(req: NextRequest) {
   try {
-    const { text, voice = "alloy", format = DEFAULT_FORMAT, userId, bypassCache } =
-      (await req.json().catch(() => ({}))) as {
-        text?: string;
-        voice?: string;
-        format?: "mp3" | "wav" | "ogg";
-        userId?: string;
-        bypassCache?: boolean;
-      };
+    const payload = (await req.json().catch(() => ({}))) as {
+      text?: string;
+      voice?: string;
+      format?: "mp3" | "wav" | "ogg";
+      userId?: string;
+      bypassCache?: boolean;
+    };
 
+    const text = payload.text ?? "";
+    const voice = (payload.voice || DEFAULT_VOICE).trim();
+    const format = (payload.format || DEFAULT_FORMAT).toLowerCase() as
+      | "mp3" | "wav" | "ogg";
+    const userId = (payload.userId || req.headers.get("x-user-id") || "anon").toString();
     const bypass =
-      !!bypassCache ||
+      !!payload.bypassCache ||
       req.nextUrl.searchParams.get("bypass") === "1" ||
       req.headers.get("x-bypass-cache") === "1";
 
-    if (!text || typeof text !== "string") {
-      return NextResponse.json({ error: "Missing text." }, { status: 400 });
-    }
     const normText = normalizeSpaces(text);
     if (!normText) {
       return NextResponse.json({ error: "Empty text." }, { status: 400 });
     }
 
-    const softUser =
-      (typeof userId === "string" && userId) ||
-      req.headers.get("x-user-id") ||
-      "anon";
-
-    const ext = (format || DEFAULT_FORMAT).toLowerCase();
-    const key = sha256(
-      [softUser, MODEL, voice || "", ext, normText].join(":")
-    );
-    const filePath = shardPath(CACHE_DIR, key, ext);
+    // -------------- simple cache key --------------
+    const key = sha256([userId, MODEL, voice, format, normText].join(":"));
+    const filePath = shardPath(CACHE_DIR, key, format);
 
     if (!bypass) {
       await ensureDir(path.dirname(filePath));
@@ -95,7 +92,7 @@ export async function POST(req: NextRequest) {
         return new NextResponse(hit, {
           status: 200,
           headers: {
-            "Content-Type": mimeFrom(ext),
+            "Content-Type": mimeFrom(format),
             "Cache-Control": "no-store",
             "X-Cache-Hit": "1",
           },
@@ -103,24 +100,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Generate fresh (locked to tts-1)
+    // -------------- generate (stable defaults) --------------
     const r = await openai.audio.speech.create({
-      model: MODEL, // "tts-1"
-      voice,
+      model: MODEL,        // "tts-1"
+      voice,               // default 'nova' if none provided
       input: normText,
-      format: ext as any, // "mp3" | "wav" | "ogg"
+      format,              // "mp3" | "wav" | "ogg"
     });
+
     const audio = Buffer.from(await r.arrayBuffer());
 
+    // Best-effort cache write
     try {
       await ensureDir(path.dirname(filePath));
       await fs.writeFile(filePath, audio);
-    } catch { /* ignore cache write errors */ }
+    } catch {}
 
     return new NextResponse(audio, {
       status: 200,
       headers: {
-        "Content-Type": mimeFrom(ext),
+        "Content-Type": mimeFrom(format),
         "Cache-Control": "no-store",
         "X-Cache-Hit": "0",
       },
@@ -132,4 +131,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
