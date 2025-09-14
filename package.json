@@ -6,22 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "next lint"
   },
   "dependencies": {
-    "@ffmpeg-installer/ffmpeg": "^1.1.0",
-    "@ffmpeg-installer/win32-x64": "^4.1.0",
-    "@ffmpeg/ffmpeg": "^0.12.15",
-    "canvas": "^3.2.0",
-    "ffmpeg-static": "^5.2.0",
     "framer-motion": "^12.23.12",
-    "gsap": "^3.13.0",
     "next": "15.5.2",
     "openai": "^5.19.1",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "react-spring": "^10.0.1",
-    "wavefile": "^11.0.0",
     "wavesurfer.js": "^7.10.1"
   },
   "devDependencies": {
