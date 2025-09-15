@@ -406,7 +406,6 @@ export default function Page() {
 
   /* User plan */
   const [userPlan, setUserPlan] = useState<'free' | 'pro'>('free');
-  
 
   /* Export status */
   const [isExporting, setIsExporting] = useState(false);
@@ -917,10 +916,10 @@ const generateTTS = async () => {
       }
     }
 
-    // Custom text box (replaces watermark)
-    if (plan === 'free' || (plan === 'pro' && customText.trim())) {
+    // Text overlay (free users only)
+    if (plan === 'free') {
       ctx.save();
-      const displayText = plan === 'free' ? 'AudioGraffiti.co - upgrade to remove text' : customText.trim();
+      const displayText = 'AudioGraffiti.co - upgrade to remove the text block';
       const fontSize = 36;
       ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textBaseline = 'middle';
@@ -931,22 +930,22 @@ const generateTTS = async () => {
       const boxW = metrics.width + padX * 2;
       const boxH = fontSize + padY * 2;
 
-     // Position in upper third (more visible than top edge)
-    const wmX = WIDTH - boxW - 30;
-    const wmY = HEIGHT * 0.18; // About 15% down from top
+      // Position in upper area (20% down from top)
+      const wmX = WIDTH - boxW - 30;
+      const wmY = HEIGHT * 0.20;
 
       // Background
       ctx.fillStyle = 'rgba(0,0,0,0.8)';
       roundedRectFill(ctx, wmX, wmY, boxW, boxH, 12);
       
       // Border
-      ctx.strokeStyle = plan === 'free' ? '#FFD700' : 'rgba(255,255,255,0.4)';
-      ctx.lineWidth = plan === 'free' ? 2 : 1;
+      ctx.strokeStyle = '#FFD700';
+      ctx.lineWidth = 2;
       roundedRectPath(ctx, wmX, wmY, boxW, boxH, 12);
       ctx.stroke();
 
       // Text
-      ctx.fillStyle = plan === 'free' ? '#FFD700' : '#fff';
+      ctx.fillStyle = '#FFD700';
       ctx.fillText(displayText, wmX + boxW / 2, wmY + boxH / 2);
       ctx.restore();
     }
@@ -968,7 +967,6 @@ const generateTTS = async () => {
   const autoBgRef = useRef(autoBg);
   const artOpacityRef = useRef(1);
   const artworksRef = useRef(artworks);
-  const customTextRef = useRef(customText);
   const userPlanRef = useRef(userPlan);
 
   useEffect(() => { segsRef.current = segments; }, [segments]);
@@ -977,7 +975,6 @@ const generateTTS = async () => {
   useEffect(() => { autoBgRef.current = autoBg; }, [autoBg]);
   useEffect(() => { artworksRef.current = artworks; }, [artworks]);
   useEffect(() => { artOpacityRef.current = artOpacity; }, [artOpacity]);
-  useEffect(() => { customTextRef.current = customText; }, [customText]);
   useEffect(() => { userPlanRef.current = userPlan; }, [userPlan]);
 
   // Ensure phone canvas pixel size when opened
@@ -1086,13 +1083,13 @@ const generateTTS = async () => {
         );
 
         drawFrame(
-          ctx, t, grad, segs, transcriptRef.current, b, slide, artOpacityRef.current, customTextRef.current, userPlanRef.current
+          ctx, t, grad, segs, transcriptRef.current, b, slide, artOpacityRef.current, userPlanRef.current
         );
 
         const phoneCtx = phoneCanvasRef.current?.getContext('2d') || null;
         if (phoneCtx) {
           drawFrame(
-            phoneCtx, t, grad, segs, transcriptRef.current, b, slide, artOpacityRef.current, customTextRef.current, userPlanRef.current
+            phoneCtx, t, grad, segs, transcriptRef.current, b, slide, artOpacityRef.current, userPlanRef.current
           );
         }
       } catch (e) {
@@ -1577,28 +1574,29 @@ const generateTTS = async () => {
             </div>
           )}
         </div>
-{/* Remove Text Overlay */}
-<div className="mb-3 rounded-xl border border-white/10 bg-black/20">
-  <div className="px-3 py-2 text-sm flex items-center justify-between">
-    <span className="opacity-80">Remove Text Overlay</span>
-    <span className={`px-2 py-1 rounded text-xs ${userPlan === 'pro' ? 'bg-green-500/90 text-black' : 'bg-gray-500/90 text-white'}`}>
-      {userPlan === 'pro' ? 'PRO' : 'FREE'}
-    </span>
-  </div>
-  <div className="px-3 pb-3">
-    <div className="text-sm opacity-70 mb-2">
-      {userPlan === 'free' ? 'Free videos include promotional text overlay' : 'Your videos have clean, professional appearance'}
-    </div>
-    {userPlan === 'free' && (
-      <button 
-        onClick={() => setUserPlan('pro')} // Temporary - replace with real upgrade flow
-        className="px-3 py-1 bg-yellow-500/90 hover:bg-yellow-500 text-black rounded text-sm"
-      >
-        Upgrade to Pro - $15/month
-      </button>
-    )}
-  </div>
-</div>
+
+        {/* Remove Text Overlay */}
+        <div className="mb-3 rounded-xl border border-white/10 bg-black/20">
+          <div className="px-3 py-2 text-sm flex items-center justify-between">
+            <span className="opacity-80">Remove Text Overlay</span>
+            <span className={`px-2 py-1 rounded text-xs ${userPlan === 'pro' ? 'bg-green-500/90 text-black' : 'bg-gray-500/90 text-white'}`}>
+              {userPlan === 'pro' ? 'PRO' : 'FREE'}
+            </span>
+          </div>
+          <div className="px-3 pb-3">
+            <div className="text-sm opacity-70 mb-2">
+              {userPlan === 'free' ? 'Free videos include promotional text overlay' : 'Your videos have clean, professional appearance'}
+            </div>
+            {userPlan === 'free' && (
+              <button 
+                onClick={() => setUserPlan('pro')} // Temporary - replace with real upgrade flow
+                className="px-3 py-1 bg-yellow-500/90 hover:bg-yellow-500 text-black rounded text-sm"
+              >
+                Upgrade to Pro - $15/month
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* swatches */}
         <div className="flex gap-2 mb-2">
