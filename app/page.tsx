@@ -922,7 +922,7 @@ const generateTTS = async () => {
     if (plan === 'free' || (plan === 'pro' && customText.trim())) {
       ctx.save();
       const displayText = plan === 'free' ? 'AudioGraffiti.co - upgrade to customize this text block' : customText.trim();
-      const fontSize = 28;
+      const fontSize = 36;
       ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'center';
@@ -934,7 +934,7 @@ const generateTTS = async () => {
 
      // Position in upper third (more visible than top edge)
     const wmX = WIDTH - boxW - 30;
-    const wmY = HEIGHT * 0.15; // About 15% down from top
+    const wmY = HEIGHT * 0.25; // About 15% down from top
 
       // Background
       ctx.fillStyle = 'rgba(0,0,0,0.8)';
