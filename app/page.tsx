@@ -628,6 +628,7 @@ const generateTTS = async () => {
     setIsTtsBusy(true);
     setErr(null);
 
+    // Step 1: Generate TTS audio
     const tt = await fetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -652,29 +653,51 @@ const generateTTS = async () => {
     const url = URL.createObjectURL(audioBlob);
     setAudioUrl(url);
 
-    // Probe duration
-    const probe = new Audio(url);
-    probe.preload = 'auto';
-    await new Promise<void>((res, rej) => {
-      const ok = () => res();
-      const bad = () =>
-        rej(new Error('Could not load TTS audio to measure duration.'));
-      probe.addEventListener('loadedmetadata', ok, { once: true });
-      probe.addEventListener('error', bad, { once: true });
-      probe.load();
+    // Step 2: Transcribe the generated TTS audio to get precise timing
+    const fd = new FormData();
+    fd.append(
+      'file',
+      new File([audioBlob], 'tts.mp3', { type: audioBlob.type || 'audio/mp3' })
+    );
+    
+    const transcribeResponse = await fetch('/api/transcribe', { 
+      method: 'POST', 
+      body: fd 
     });
-    const dur =
-      isFinite(probe.duration) && probe.duration > 0 ? probe.duration : 10;
+    
+    if (!transcribeResponse.ok) {
+      let msg: string;
+      try {
+        const j = await transcribeResponse.json();
+        msg = j?.error || JSON.stringify(j);
+      } catch {
+        msg = await transcribeResponse.text();
+      }
+      throw new Error(msg || 'Transcription of TTS failed (server error).');
+    }
 
-    // SIMPLIFIED: Skip transcription, use direct duration-based segmentation
-    const txText = ttsText.trim();
-    const segs = normalizeSegments(
-      buildSegmentsFromTextAndDuration(txText, dur),
-      dur
+    const transcribeData = await transcribeResponse.json();
+
+    // Step 3: Use precise Whisper segments, but reflow the original text for accuracy
+    let whisperSegs: Array<{ start: number; end: number; text: string }> = 
+      (transcribeData?.segments as any[])?.map((s: any) => ({
+        start: s.start,
+        end: s.end,
+        text: (s.text || '').trim(),
+      })) || [];
+
+    // Step 4: Reflow the original TTS text onto Whisper's precise timings
+    const reflowedSegs = whisperSegs.length > 0 
+      ? reflowTextOntoTimings(whisperSegs, ttsText.trim())
+      : buildSegmentsFromTextAndDuration(ttsText.trim(), 10); // fallback
+
+    const finalSegs = normalizeSegments(
+      reflowedSegs,
+      whisperSegs[whisperSegs.length - 1]?.end || 10
     );
 
-    setTranscript(txText);
-    setSegments(segs);
+    setTranscript(ttsText.trim());
+    setSegments(finalSegs);
     setCurrentIdx(0);
     capMetricsMemoRef.current = null;
   } catch (e: any) {
