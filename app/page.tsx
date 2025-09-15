@@ -404,6 +404,10 @@ export default function Page() {
   const [presetIdx, setPresetIdx] = useState(1);
   const [autoBg, setAutoBg] = useState(true);
 
+  /* User plan and custom text */
+  const [userPlan, setUserPlan] = useState<'free' | 'pro'>('free');
+  const [customText, setCustomText] = useState('');
+
   /* Export status */
   const [isExporting, setIsExporting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -670,15 +674,6 @@ const generateTTS = async () => {
       dur
     );
 
-    // Debug logging to verify no words are lost
-    console.log('=== TTS Segmentation Debug ===');
-    console.log('Original text:', txText);
-    console.log('Original word count:', txText.split(/\s+/).length);
-    console.log('Segments created:', segs.length);
-    console.log('Total words in segments:', segs.reduce((total, seg) => 
-      total + seg.text.split(/\s+/).filter(Boolean).length, 0));
-    console.log('All segment texts:', segs.map(s => s.text));
-
     setTranscript(txText);
     setSegments(segs);
     setCurrentIdx(0);
@@ -847,7 +842,9 @@ const generateTTS = async () => {
     transcriptText: string,
     bars: number[] | undefined,
     art: CanvasImageSource | null,
-    artOp: number
+    artOp: number,
+    customText: string,
+    plan: 'free' | 'pro'
   ) {
     // Background gradient
     const g = ctx.createLinearGradient(0, 0, 0, HEIGHT);
@@ -855,7 +852,7 @@ const generateTTS = async () => {
     g.addColorStop(1, grad[1]);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
-  
+
     // Layout
     const left = WIDTH * 0.06,
       right = WIDTH * 0.94;
@@ -863,44 +860,19 @@ const generateTTS = async () => {
       gap = 10;
     const bins = Math.min(64, bars?.length || 64);
     const barW = (availW - (bins - 1) * gap) / bins;
-  
+
     const maxBarH = isSquare ? 100 : 150;
     const midY = isSquare ? HEIGHT * 0.4 : CAP_TOP - 120;
-  
+
     // Artwork area
     const artTop = isSquare ? 80 : 120;
     const artBottom = midY - maxBarH / 2 - (isSquare ? 40 : 60);
     const artHeight = Math.max(0, artBottom - artTop);
-  
+
     if (art && artHeight > 40) {
       drawImageCoverRounded(ctx, art, left, artTop, availW, artHeight, 28, artOp);
-      // Watermark overlay on artwork for free plan (example)
-      const plan: 'free' | 'pro' = 'free';
-      if (plan === 'free') {
-        ctx.save();
-        const wmText = 'Powered by AudioGraffiti.co';
-        const fontSize = 30;
-        ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.textBaseline = 'middle';
-        ctx.textAlign = 'left';
-  
-        const padX = 14, padY = 8;
-        const metrics = ctx.measureText(wmText);
-        const boxW = Math.ceil(metrics.width) + padX * 2;
-        const boxH = fontSize + padY * 2;
-  
-        const wmX = left + (availW - boxW) - 16;
-        const wmY = artBottom - boxH - 16;
-  
-        ctx.fillStyle = 'rgba(0,0,0,0.45)';
-        roundedRectFill(ctx, wmX, wmY, boxW, boxH, 10);
-  
-        ctx.fillStyle = '#fff';
-        ctx.fillText(wmText, wmX + padX, wmY + boxH / 2 + 0.5);
-        ctx.restore();
-      }
     }
-  
+
     // Waveform
     if (bars?.length) {
       ctx.fillStyle = '#f5c445';
@@ -912,14 +884,14 @@ const generateTTS = async () => {
         roundedRectFill(ctx, x, y, barW, h, 14);
       }
     }
-  
+
     // Captions
     const idx = segmentIndexAtTime(segs, t);
     const raw =
       idx === -1
         ? '' // real gap → intentionally blank to stay tightly synced
         : (segs[idx]?.text || transcriptText || 'Record or upload audio').trim();
-  
+
     if (raw) {
       const maxWidth = WIDTH * 0.94;
       if (!capMetricsMemoRef.current) {
@@ -930,48 +902,53 @@ const generateTTS = async () => {
         );
       }
       const { size: CAP_SIZE, lineHeight: CAP_LH } = capMetricsMemoRef.current!;
-  
+
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = `bold ${CAP_SIZE}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillStyle = '#fff';
-  
+
       const lines = wrapCaption(ctx, raw, maxWidth).slice(0, MAX_LINES);
       const blockH = (lines.length - 1) * CAP_LH;
       const startY = CAP_TOP + (CAP_BOX_H - blockH) / 2;
-  
+
       for (let i = 0; i < lines.length; i++) {
         const y = startY + i * CAP_LH;
         ctx.fillText(lines[i], WIDTH / 2, y);
       }
     }
-  
-    // Universal watermark for free plan (always appears)
-    const plan: 'free' | 'pro' = 'free';
-    if (plan === 'free') {
+
+    // Custom text box (replaces watermark)
+    if (plan === 'free' || (plan === 'pro' && customText.trim())) {
       ctx.save();
-      const wmText = 'AudioGraffiti.co - Upgrade to remove watermark';
-      const fontSize = 24;
+      const displayText = plan === 'free' ? 'Powered by AudioGraffiti.co' : customText.trim();
+      const fontSize = 28;
       ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'center';
-  
-      const padX = 16, padY = 10;
-      const metrics = ctx.measureText(wmText);
-      const boxW = Math.ceil(metrics.width) + padX * 2;
+
+      const metrics = ctx.measureText(displayText);
+      const padX = 20, padY = 12;
+      const boxW = metrics.width + padX * 2;
       const boxH = fontSize + padY * 2;
-  
+
       // Position at bottom center
       const wmX = (WIDTH - boxW) / 2;
-      const wmY = HEIGHT - boxH - 20;
-  
-      // Semi-transparent background
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      roundedRectFill(ctx, wmX, wmY, boxW, boxH, 8);
-  
-      // White text
-      ctx.fillStyle = '#fff';
-      ctx.fillText(wmText, WIDTH / 2, wmY + boxH / 2);
+      const wmY = HEIGHT - boxH - 30;
+
+      // Background
+      ctx.fillStyle = 'rgba(0,0,0,0.8)';
+      roundedRectFill(ctx, wmX, wmY, boxW, boxH, 12);
+      
+      // Border
+      ctx.strokeStyle = plan === 'free' ? '#FFD700' : 'rgba(255,255,255,0.4)';
+      ctx.lineWidth = plan === 'free' ? 2 : 1;
+      roundedRectPath(ctx, wmX, wmY, boxW, boxH, 12);
+      ctx.stroke();
+
+      // Text
+      ctx.fillStyle = plan === 'free' ? '#FFD700' : '#fff';
+      ctx.fillText(displayText, wmX + boxW / 2, wmY + boxH / 2);
       ctx.restore();
     }
   }
@@ -992,6 +969,8 @@ const generateTTS = async () => {
   const autoBgRef = useRef(autoBg);
   const artOpacityRef = useRef(1);
   const artworksRef = useRef(artworks);
+  const customTextRef = useRef(customText);
+  const userPlanRef = useRef(userPlan);
 
   useEffect(() => { segsRef.current = segments; }, [segments]);
   useEffect(() => { transcriptRef.current = transcript; }, [transcript]);
@@ -999,6 +978,8 @@ const generateTTS = async () => {
   useEffect(() => { autoBgRef.current = autoBg; }, [autoBg]);
   useEffect(() => { artworksRef.current = artworks; }, [artworks]);
   useEffect(() => { artOpacityRef.current = artOpacity; }, [artOpacity]);
+  useEffect(() => { customTextRef.current = customText; }, [customText]);
+  useEffect(() => { userPlanRef.current = userPlan; }, [userPlan]);
 
   // Ensure phone canvas pixel size when opened
   useEffect(() => {
@@ -1106,13 +1087,13 @@ const generateTTS = async () => {
         );
 
         drawFrame(
-          ctx, t, grad, segs, transcriptRef.current, b, slide, artOpacityRef.current
+          ctx, t, grad, segs, transcriptRef.current, b, slide, artOpacityRef.current, customTextRef.current, userPlanRef.current
         );
 
         const phoneCtx = phoneCanvasRef.current?.getContext('2d') || null;
         if (phoneCtx) {
           drawFrame(
-            phoneCtx, t, grad, segs, transcriptRef.current, b, slide, artOpacityRef.current
+            phoneCtx, t, grad, segs, transcriptRef.current, b, slide, artOpacityRef.current, customTextRef.current, userPlanRef.current
           );
         }
       } catch (e) {
@@ -1272,7 +1253,7 @@ const generateTTS = async () => {
         artworks.map((x) => ({ img: x.img }))
       );
 
-      drawFrame(ctx, currentTime, grad, segs, transcript, b, slide, artOpacity);
+      drawFrame(ctx, currentTime, grad, segs, transcript, b, slide, artOpacity, customText, userPlan);
 
       const progress = Math.min(currentTime / totalDuration, 1);
       onProgress?.(Math.min(99, Math.floor(progress * 99)));
@@ -1590,12 +1571,44 @@ const generateTTS = async () => {
                   {ttsText.trim().length} chars
                 </div>
               </div>
-              <div className="mt-1 text:[11px] opacity-70">
+              <div className="mt-1 text-[11px] opacity-70">
                 Tip: For best timing, prefer simple punctuation; spell out big currency/quantities
-                (e.g., “fifty dollars” over “$50”). Years like “1984” are fine.
+                (e.g., "fifty dollars" over "$50"). Years like "1984" are fine.
               </div>
             </div>
           )}
+        </div>
+
+        {/* Custom Text */}
+        <div className="mb-3 rounded-xl border border-white/10 bg-black/20">
+          <div className="px-3 py-2 text-sm flex items-center justify-between">
+            <span className="opacity-80">Custom Text</span>
+            <span className={`px-2 py-1 rounded text-xs ${userPlan === 'pro' ? 'bg-green-500/90 text-black' : 'bg-gray-500/90 text-white'}`}>
+              {userPlan === 'pro' ? 'PRO' : 'FREE'}
+            </span>
+          </div>
+          <div className="px-3 pb-3">
+            <input
+              type="text"
+              value={customText}
+              onChange={(e) => setCustomText(e.target.value.slice(0, 30))}
+              disabled={userPlan === 'free'}
+              className="w-full rounded-md bg-white/10 border border-white/10 p-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              placeholder={userPlan === 'free' ? 'Upgrade to customize this text' : 'Enter custom text (30 chars max)'}
+            />
+            <div className="mt-1 flex justify-between text-xs opacity-70">
+              <span>{userPlan === 'free' ? 'Shows: "Powered by AudioGraffiti.co"' : 'Leave blank to hide text'}</span>
+              <span>{customText.length}/30</span>
+            </div>
+            {userPlan === 'free' && (
+              <button 
+                onClick={() => setUserPlan('pro')} // Temporary - replace with real upgrade flow
+                className="mt-2 px-3 py-1 bg-yellow-500/90 hover:bg-yellow-500 text-black rounded text-sm"
+              >
+                Upgrade to Pro
+              </button>
+            )}
+          </div>
         </div>
 
         {/* swatches */}
