@@ -855,7 +855,7 @@ const generateTTS = async () => {
     g.addColorStop(1, grad[1]);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
+  
     // Layout
     const left = WIDTH * 0.06,
       right = WIDTH * 0.94;
@@ -863,15 +863,15 @@ const generateTTS = async () => {
       gap = 10;
     const bins = Math.min(64, bars?.length || 64);
     const barW = (availW - (bins - 1) * gap) / bins;
-
+  
     const maxBarH = isSquare ? 100 : 150;
     const midY = isSquare ? HEIGHT * 0.4 : CAP_TOP - 120;
-
+  
     // Artwork area
     const artTop = isSquare ? 80 : 120;
     const artBottom = midY - maxBarH / 2 - (isSquare ? 40 : 60);
     const artHeight = Math.max(0, artBottom - artTop);
-
+  
     if (art && artHeight > 40) {
       drawImageCoverRounded(ctx, art, left, artTop, availW, artHeight, 28, artOp);
       // Watermark overlay on artwork for free plan (example)
@@ -883,24 +883,24 @@ const generateTTS = async () => {
         ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
-
+  
         const padX = 14, padY = 8;
         const metrics = ctx.measureText(wmText);
         const boxW = Math.ceil(metrics.width) + padX * 2;
         const boxH = fontSize + padY * 2;
-
+  
         const wmX = left + (availW - boxW) - 16;
         const wmY = artBottom - boxH - 16;
-
+  
         ctx.fillStyle = 'rgba(0,0,0,0.45)';
         roundedRectFill(ctx, wmX, wmY, boxW, boxH, 10);
-
+  
         ctx.fillStyle = '#fff';
         ctx.fillText(wmText, wmX + padX, wmY + boxH / 2 + 0.5);
         ctx.restore();
       }
     }
-
+  
     // Waveform
     if (bars?.length) {
       ctx.fillStyle = '#f5c445';
@@ -912,14 +912,14 @@ const generateTTS = async () => {
         roundedRectFill(ctx, x, y, barW, h, 14);
       }
     }
-
+  
     // Captions
     const idx = segmentIndexAtTime(segs, t);
     const raw =
       idx === -1
-        ? ''
+        ? '' // real gap → intentionally blank to stay tightly synced
         : (segs[idx]?.text || transcriptText || 'Record or upload audio').trim();
-
+  
     if (raw) {
       const maxWidth = WIDTH * 0.94;
       if (!capMetricsMemoRef.current) {
@@ -930,20 +930,49 @@ const generateTTS = async () => {
         );
       }
       const { size: CAP_SIZE, lineHeight: CAP_LH } = capMetricsMemoRef.current!;
-
+  
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = `bold ${CAP_SIZE}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillStyle = '#fff';
-
+  
       const lines = wrapCaption(ctx, raw, maxWidth).slice(0, MAX_LINES);
       const blockH = (lines.length - 1) * CAP_LH;
       const startY = CAP_TOP + (CAP_BOX_H - blockH) / 2;
-
+  
       for (let i = 0; i < lines.length; i++) {
         const y = startY + i * CAP_LH;
         ctx.fillText(lines[i], WIDTH / 2, y);
       }
+    }
+  
+    // Universal watermark for free plan (always appears)
+    const plan: 'free' | 'pro' = 'free';
+    if (plan === 'free') {
+      ctx.save();
+      const wmText = 'AudioGraffiti.co - Upgrade to remove watermark';
+      const fontSize = 24;
+      ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+  
+      const padX = 16, padY = 10;
+      const metrics = ctx.measureText(wmText);
+      const boxW = Math.ceil(metrics.width) + padX * 2;
+      const boxH = fontSize + padY * 2;
+  
+      // Position at bottom center
+      const wmX = (WIDTH - boxW) / 2;
+      const wmY = HEIGHT - boxH - 20;
+  
+      // Semi-transparent background
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      roundedRectFill(ctx, wmX, wmY, boxW, boxH, 8);
+  
+      // White text
+      ctx.fillStyle = '#fff';
+      ctx.fillText(wmText, WIDTH / 2, wmY + boxH / 2);
+      ctx.restore();
     }
   }
 
