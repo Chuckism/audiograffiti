@@ -934,7 +934,7 @@ const generateTTS = async () => {
 
      // Position in upper third (more visible than top edge)
     const wmX = WIDTH - boxW - 30;
-    const wmY = HEIGHT * 0.25; // About 15% down from top
+    const wmY = HEIGHT * 0.20; // About 15% down from top
 
       // Background
       ctx.fillStyle = 'rgba(0,0,0,0.8)';
