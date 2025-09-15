@@ -921,7 +921,7 @@ const generateTTS = async () => {
     // Custom text box (replaces watermark)
     if (plan === 'free' || (plan === 'pro' && customText.trim())) {
       ctx.save();
-      const displayText = plan === 'free' ? 'AudioGraffiti.co - upgrade to replace text' : customText.trim();
+      const displayText = plan === 'free' ? 'AudioGraffiti.co - upgrade to customize this text block' : customText.trim();
       const fontSize = 28;
       ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textBaseline = 'middle';
@@ -1591,7 +1591,7 @@ const generateTTS = async () => {
             <input
               type="text"
               value={customText}
-              onChange={(e) => setCustomText(e.target.value.slice(0, 30))}
+              onChange={(e) => setCustomText(e.target.value.slice(0, 60))}
               disabled={userPlan === 'free'}
               className="w-full rounded-md bg-white/10 border border-white/10 p-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder={userPlan === 'free' ? 'Upgrade to customize this text' : 'Enter custom text (30 chars max)'}
