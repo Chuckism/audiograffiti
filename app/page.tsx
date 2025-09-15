@@ -901,7 +901,7 @@ const generateTTS = async () => {
     
     // Artwork area
     const artTop = isSquare ? 80 : 120;
-    const artBottom = midY - maxBarH / 2 - (isSquare ? 20 : 60);
+    const artBottom = midY - maxBarH / 2 - (isSquare ? 50 : 60);
     const artHeight = Math.max(0, artBottom - artTop);
 
     if (art && artHeight > 40) {
@@ -969,7 +969,7 @@ const generateTTS = async () => {
 
       // Position in upper area (20% down from top)
       const wmX = WIDTH - boxW - 30;
-      const wmY = HEIGHT * 0.20;
+      const wmY = HEIGHT * 0.15;
 
       // Background
       ctx.fillStyle = 'rgba(0,0,0,0.8)';
