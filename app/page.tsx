@@ -897,11 +897,11 @@ const generateTTS = async () => {
     const barW = (availW - (bins - 1) * gap) / bins;
 
     const maxBarH = isSquare ? 100 : 150;
-    const midY = isSquare ? HEIGHT * 0.4 : CAP_TOP - 120;
-
+    const midY = isSquare ? HEIGHT * 0.75 : CAP_TOP - 120;
+    
     // Artwork area
     const artTop = isSquare ? 80 : 120;
-    const artBottom = midY - maxBarH / 2 - (isSquare ? 40 : 60);
+    const artBottom = midY - maxBarH / 2 - (isSquare ? 20 : 60);
     const artHeight = Math.max(0, artBottom - artTop);
 
     if (art && artHeight > 40) {
