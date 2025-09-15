@@ -382,7 +382,7 @@ export default function Page() {
 
   /* Responsive layout */
   const isSquare = WIDTH === HEIGHT;
-  const CAP_TOP = isSquare ? HEIGHT - 400 : 1200;
+  const CAP_TOP = isSquare ? HEIGHT * 0.83 : 1200; // Text starts at 83% down (bottom 17%)
   const CAP_BOTTOM = HEIGHT - 96;
   const CAP_BOX_H = CAP_BOTTOM - CAP_TOP;
 
