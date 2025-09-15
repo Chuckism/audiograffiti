@@ -373,7 +373,7 @@ function segmentIndexAtTime(
 /* =========================== COMPONENT ============================ */
 export default function Page() {
   /* Format state */
-  const [selectedFormat, setSelectedFormat] = useState<FormatKey>('9:16');
+  const [selectedFormat, setSelectedFormat] = useState<FormatKey>('1:1');
 
   /* Dynamic dimensions */
   const FORMAT = FORMATS[selectedFormat];
