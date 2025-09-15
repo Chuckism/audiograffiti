@@ -932,9 +932,9 @@ const generateTTS = async () => {
       const boxW = metrics.width + padX * 2;
       const boxH = fontSize + padY * 2;
 
-      // Position at bottom center
-      const wmX = (WIDTH - boxW) / 2;
-      const wmY = HEIGHT - boxH - 30;
+      // Position at top right
+      const wmX = WIDTH - boxW - 30;
+      const wmY = 30;
 
       // Background
       ctx.fillStyle = 'rgba(0,0,0,0.8)';
