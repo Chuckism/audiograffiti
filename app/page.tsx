@@ -652,12 +652,26 @@ const generateTTS = async () => {
     const audioBlob = await tt.blob();
     const url = URL.createObjectURL(audioBlob);
     setAudioUrl(url);
-
+    
+    // Probe actual TTS duration
+    let dur = 10;
+    try {
+      const probe = new Audio();
+      probe.src = url;
+      probe.preload = 'auto';
+      await new Promise<void>((res, rej) => {
+        probe.addEventListener('loadedmetadata', () => res(), { once: true });
+        probe.addEventListener('error', () => rej(new Error('probe failed')), { once: true });
+        probe.load();
+      });
+      if (isFinite(probe.duration) && probe.duration > 0) dur = probe.duration;
+    } catch {}
+    
     // Step 2: Transcribe the generated TTS audio to get precise timing
     const fd = new FormData();
     fd.append(
       'file',
-      new File([audioBlob], 'tts.mp3', { type: audioBlob.type || 'audio/mp3' })
+      new File([audioBlob], 'tts.mp3', { type: audioBlob.type || 'audio/mpeg' })
     );
     
     const transcribeResponse = await fetch('/api/transcribe', { 
@@ -688,13 +702,13 @@ const generateTTS = async () => {
 
     // Step 4: Reflow the original TTS text onto Whisper's precise timings
     const reflowedSegs = whisperSegs.length > 0 
-      ? reflowTextOntoTimings(whisperSegs, ttsText.trim())
-      : buildSegmentsFromTextAndDuration(ttsText.trim(), 10); // fallback
+  ? reflowTextOntoTimings(whisperSegs, ttsText.trim())
+  : buildSegmentsFromTextAndDuration(ttsText.trim(), dur); // Use actual duration
 
-    const finalSegs = normalizeSegments(
-      reflowedSegs,
-      whisperSegs[whisperSegs.length - 1]?.end || 10
-    );
+  const finalSegs = normalizeSegments(
+    reflowedSegs,
+    dur
+  ); 
 
     setTranscript(ttsText.trim());
     setSegments(finalSegs);
