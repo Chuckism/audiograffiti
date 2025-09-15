@@ -920,7 +920,7 @@ const generateTTS = async () => {
     if (plan === 'free') {
       ctx.save();
       const displayText = 'AudioGraffiti.co - upgrade to remove the text block';
-      const fontSize = 36;
+      const fontSize = Math.round(WIDTH * 0.033); // Scales with canvas width
       ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'center';
