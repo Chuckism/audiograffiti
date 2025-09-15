@@ -920,7 +920,7 @@ const generateTTS = async () => {
     // Custom text box (replaces watermark)
     if (plan === 'free' || (plan === 'pro' && customText.trim())) {
       ctx.save();
-      const displayText = plan === 'free' ? 'AudioGraffiti.co - upgrade to remove text block' : customText.trim();
+      const displayText = plan === 'free' ? 'AudioGraffiti.co - upgrade to remove text' : customText.trim();
       const fontSize = 36;
       ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textBaseline = 'middle';
