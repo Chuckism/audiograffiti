@@ -404,9 +404,9 @@ export default function Page() {
   const [presetIdx, setPresetIdx] = useState(1);
   const [autoBg, setAutoBg] = useState(true);
 
-  /* User plan and custom text */
+  /* User plan */
   const [userPlan, setUserPlan] = useState<'free' | 'pro'>('free');
-  const [customText, setCustomText] = useState('');
+  
 
   /* Export status */
   const [isExporting, setIsExporting] = useState(false);
@@ -843,7 +843,6 @@ const generateTTS = async () => {
     bars: number[] | undefined,
     art: CanvasImageSource | null,
     artOp: number,
-    customText: string,
     plan: 'free' | 'pro'
   ) {
     // Background gradient
@@ -921,7 +920,7 @@ const generateTTS = async () => {
     // Custom text box (replaces watermark)
     if (plan === 'free' || (plan === 'pro' && customText.trim())) {
       ctx.save();
-      const displayText = plan === 'free' ? 'AudioGraffiti.co - upgrade to customize this text block' : customText.trim();
+      const displayText = plan === 'free' ? 'AudioGraffiti.co - upgrade to remove text block' : customText.trim();
       const fontSize = 36;
       ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textBaseline = 'middle';
@@ -1253,7 +1252,7 @@ const generateTTS = async () => {
         artworks.map((x) => ({ img: x.img }))
       );
 
-      drawFrame(ctx, currentTime, grad, segs, transcript, b, slide, artOpacity, customText, userPlan);
+      drawFrame(ctx, currentTime, grad, segs, transcript, b, slide, artOpacity, userPlan);
 
       const progress = Math.min(currentTime / totalDuration, 1);
       onProgress?.(Math.min(99, Math.floor(progress * 99)));
@@ -1578,38 +1577,28 @@ const generateTTS = async () => {
             </div>
           )}
         </div>
-
-        {/* Custom Text */}
-        <div className="mb-3 rounded-xl border border-white/10 bg-black/20">
-          <div className="px-3 py-2 text-sm flex items-center justify-between">
-            <span className="opacity-80">Custom Text</span>
-            <span className={`px-2 py-1 rounded text-xs ${userPlan === 'pro' ? 'bg-green-500/90 text-black' : 'bg-gray-500/90 text-white'}`}>
-              {userPlan === 'pro' ? 'PRO' : 'FREE'}
-            </span>
-          </div>
-          <div className="px-3 pb-3">
-            <input
-              type="text"
-              value={customText}
-              onChange={(e) => setCustomText(e.target.value.slice(0, 60))}
-              disabled={userPlan === 'free'}
-              className="w-full rounded-md bg-white/10 border border-white/10 p-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              placeholder={userPlan === 'free' ? 'Upgrade to customize this text' : 'Enter custom text (30 chars max)'}
-            />
-            <div className="mt-1 flex justify-between text-xs opacity-70">
-              <span>{userPlan === 'free' ? 'Shows: "Powered by AudioGraffiti.co"' : 'Leave blank to hide text'}</span>
-              <span>{customText.length}/30</span>
-            </div>
-            {userPlan === 'free' && (
-              <button 
-                onClick={() => setUserPlan('pro')} // Temporary - replace with real upgrade flow
-                className="mt-2 px-3 py-1 bg-yellow-500/90 hover:bg-yellow-500 text-black rounded text-sm"
-              >
-                Upgrade to Pro
-              </button>
-            )}
-          </div>
-        </div>
+{/* Remove Text Overlay */}
+<div className="mb-3 rounded-xl border border-white/10 bg-black/20">
+  <div className="px-3 py-2 text-sm flex items-center justify-between">
+    <span className="opacity-80">Remove Text Overlay</span>
+    <span className={`px-2 py-1 rounded text-xs ${userPlan === 'pro' ? 'bg-green-500/90 text-black' : 'bg-gray-500/90 text-white'}`}>
+      {userPlan === 'pro' ? 'PRO' : 'FREE'}
+    </span>
+  </div>
+  <div className="px-3 pb-3">
+    <div className="text-sm opacity-70 mb-2">
+      {userPlan === 'free' ? 'Free videos include promotional text overlay' : 'Your videos have clean, professional appearance'}
+    </div>
+    {userPlan === 'free' && (
+      <button 
+        onClick={() => setUserPlan('pro')} // Temporary - replace with real upgrade flow
+        className="px-3 py-1 bg-yellow-500/90 hover:bg-yellow-500 text-black rounded text-sm"
+      >
+        Upgrade to Pro - $15/month
+      </button>
+    )}
+  </div>
+</div>
 
         {/* swatches */}
         <div className="flex gap-2 mb-2">
