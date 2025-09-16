@@ -956,7 +956,7 @@ const generateTTS = async () => {
     // Text overlay (free users only)
     if (plan === 'free') {
       ctx.save();
-      const displayText = 'AudioGraffiti.co - upgrade to remove the text block';
+      const displayText = 'AudioGraffiti.co - upgrade to remove this watermark';
       const fontSize = Math.round(WIDTH * 0.033); // Scales with canvas width
       ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textBaseline = 'middle';
@@ -969,7 +969,7 @@ const generateTTS = async () => {
 
       // Position in upper area (20% down from top)
       const wmX = WIDTH - boxW - 30;
-      const wmY = HEIGHT * 0.15;
+      const wmY = HEIGHT * 0.07;
 
       // Background
       ctx.fillStyle = 'rgba(0,0,0,0.8)';
