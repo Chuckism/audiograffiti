@@ -952,21 +952,27 @@ const reflowedSegs = whisperSegs.length > 0
       }
     }
 
-    // Text overlay (free users only)
+    // Text // Text overlay (free users only)
     if (plan === 'free') {
       ctx.save();
-      const displayText = 'AudioGraffiti.co - upgrade to remove this watermark';
-      const fontSize = Math.round(WIDTH * 0.033); // Scales with canvas width
-      ctx.font = `bold ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.textBaseline = 'middle';
-      ctx.textAlign = 'center';
-
-      const metrics = ctx.measureText(displayText);
+      const mainText = 'Start creating at AudioGraffiti.co';
+      const subText = 'Upgrade to remove this message';
+      const mainFontSize = Math.round(WIDTH * 0.035); // Larger for main text
+      const subFontSize = Math.round(WIDTH * 0.022); // Smaller for sub text
+      
+      // Measure text
+      ctx.font = `bold ${mainFontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      const mainMetrics = ctx.measureText(mainText);
+      ctx.font = `${subFontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      const subMetrics = ctx.measureText(subText);
+      
+      const maxWidth = Math.max(mainMetrics.width, subMetrics.width);
       const padX = 20, padY = 12;
-      const boxW = metrics.width + padX * 2;
-      const boxH = fontSize + padY * 2;
+      const lineSpacing = 4;
+      const boxW = maxWidth + padX * 2;
+      const boxH = mainFontSize + subFontSize + lineSpacing + padY * 2;
 
-      // Position in upper area (20% down from top)
+      // Position in upper area (7% down from top)
       const wmX = WIDTH - boxW - 30;
       const wmY = HEIGHT * 0.07;
 
@@ -980,13 +986,21 @@ const reflowedSegs = whisperSegs.length > 0
       roundedRectPath(ctx, wmX, wmY, boxW, boxH, 12);
       ctx.stroke();
 
-      // Text
+      // Main text
+      ctx.font = `bold ${mainFontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillStyle = '#FFD700';
-      ctx.fillText(displayText, wmX + boxW / 2, wmY + boxH / 2);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(mainText, wmX + boxW / 2, wmY + padY);
+      
+      // Sub text
+      ctx.font = `${subFontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillStyle = '#FFD700';
+      ctx.fillText(subText, wmX + boxW / 2, wmY + padY + mainFontSize + lineSpacing);
+      
       ctx.restore();
-    }
-  }
-
+    }overlay (free users only)
+    
   /* ========================== LIVE PREVIEW ========================== */
   const previewRef = useRef<HTMLCanvasElement | null>(null);
 
