@@ -700,17 +700,16 @@ const generateTTS = async () => {
         text: (s.text || '').trim(),
       })) || [];
 
-    // Step 4: Reflow the original TTS text onto Whisper's precise timings
-    const reflowedSegs = whisperSegs.length > 0 
-  ? reflowTextOntoTimings(whisperSegs, ttsText.trim())
-  : buildSegmentsFromTextAndDuration(ttsText.trim(), dur); // Use actual duration
-
+ // Use Whisper's segments directly for best timing
+const reflowedSegs = whisperSegs.length > 0 
+? whisperSegs
+: buildSegmentsFromTextAndDuration(ttsText.trim(), dur);
   const finalSegs = normalizeSegments(
     reflowedSegs,
     dur
   ); 
 
-    setTranscript(ttsText.trim());
+  setTranscript(transcribeData?.text || ttsText.trim());
     setSegments(finalSegs);
     setCurrentIdx(0);
     capMetricsMemoRef.current = null;
