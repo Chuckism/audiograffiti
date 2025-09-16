@@ -999,7 +999,7 @@ const reflowedSegs = whisperSegs.length > 0
       ctx.fillText(subText, wmX + boxW / 2, wmY + padY + mainFontSize + lineSpacing);
       
       ctx.restore();
-    }overlay (free users only)
+    }
     
   /* ========================== LIVE PREVIEW ========================== */
   const previewRef = useRef<HTMLCanvasElement | null>(null);
