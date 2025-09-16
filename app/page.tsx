@@ -619,106 +619,105 @@ export default function Page() {
     }
   };
 
-  /* ============================ TTS ============================ */
- 
-/* ========================= TTS ============================ */
-const generateTTS = async () => {
-  try {
-    if (!ttsText.trim()) return;
-    setIsTtsBusy(true);
-    setErr(null);
-
-    // Step 1: Generate TTS audio
-    const tt = await fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: ttsText.trim(),
-        voice: ttsVoice,
-        format: 'mp3',
-      }),
-    });
-    if (!tt.ok) {
-      let msg: string;
-      try {
-        const j = await tt.json();
-        msg = j?.error || JSON.stringify(j);
-      } catch {
-        msg = await tt.text();
-      }
-      throw new Error(msg || 'TTS failed (server error).');
-    }
-
-    const audioBlob = await tt.blob();
-    const url = URL.createObjectURL(audioBlob);
-    setAudioUrl(url);
-    
-    // Probe actual TTS duration
-    let dur = 10;
+  /* ========================= TTS ============================ */
+  const generateTTS = async () => {
     try {
-      const probe = new Audio();
-      probe.src = url;
-      probe.preload = 'auto';
-      await new Promise<void>((res, rej) => {
-        probe.addEventListener('loadedmetadata', () => res(), { once: true });
-        probe.addEventListener('error', () => rej(new Error('probe failed')), { once: true });
-        probe.load();
+      if (!ttsText.trim()) return;
+      setIsTtsBusy(true);
+      setErr(null);
+
+      // Step 1: Generate TTS audio
+      const tt = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: ttsText.trim(),
+          voice: ttsVoice,
+          format: 'mp3',
+        }),
       });
-      if (isFinite(probe.duration) && probe.duration > 0) dur = probe.duration;
-    } catch {}
-    
-    // Step 2: Transcribe the generated TTS audio to get precise timing
-    const fd = new FormData();
-    fd.append(
-      'file',
-      new File([audioBlob], 'tts.mp3', { type: audioBlob.type || 'audio/mpeg' })
-    );
-    
-    const transcribeResponse = await fetch('/api/transcribe', { 
-      method: 'POST', 
-      body: fd 
-    });
-    
-    if (!transcribeResponse.ok) {
-      let msg: string;
-      try {
-        const j = await transcribeResponse.json();
-        msg = j?.error || JSON.stringify(j);
-      } catch {
-        msg = await transcribeResponse.text();
+      if (!tt.ok) {
+        let msg: string;
+        try {
+          const j = await tt.json();
+          msg = j?.error || JSON.stringify(j);
+        } catch {
+          msg = await tt.text();
+        }
+        throw new Error(msg || 'TTS failed (server error).');
       }
-      throw new Error(msg || 'Transcription of TTS failed (server error).');
+
+      const audioBlob = await tt.blob();
+      const url = URL.createObjectURL(audioBlob);
+      setAudioUrl(url);
+      
+      // Probe actual TTS duration
+      let dur = 10;
+      try {
+        const probe = new Audio();
+        probe.src = url;
+        probe.preload = 'auto';
+        await new Promise<void>((res, rej) => {
+          probe.addEventListener('loadedmetadata', () => res(), { once: true });
+          probe.addEventListener('error', () => rej(new Error('probe failed')), { once: true });
+          probe.load();
+        });
+        if (isFinite(probe.duration) && probe.duration > 0) dur = probe.duration;
+      } catch {}
+      
+      // Step 2: Transcribe the generated TTS audio to get precise timing
+      const fd = new FormData();
+      fd.append(
+        'file',
+        new File([audioBlob], 'tts.mp3', { type: audioBlob.type || 'audio/mpeg' })
+      );
+      
+      const transcribeResponse = await fetch('/api/transcribe', { 
+        method: 'POST', 
+        body: fd 
+      });
+      
+      if (!transcribeResponse.ok) {
+        let msg: string;
+        try {
+          const j = await transcribeResponse.json();
+          msg = j?.error || JSON.stringify(j);
+        } catch {
+          msg = await transcribeResponse.text();
+        }
+        throw new Error(msg || 'Transcription of TTS failed (server error).');
+      }
+
+      const transcribeData = await transcribeResponse.json();
+
+      // Step 3: Use precise Whisper segments, but reflow the original text for accuracy
+      let whisperSegs: Array<{ start: number; end: number; text: string }> = 
+        (transcribeData?.segments as any[])?.map((s: any) => ({
+          start: s.start,
+          end: s.end,
+          text: (s.text || '').trim(),
+        })) || [];
+
+      // Use Whisper's segments directly for best timing
+      const reflowedSegs = whisperSegs.length > 0 
+        ? whisperSegs
+        : buildSegmentsFromTextAndDuration(ttsText.trim(), dur);
+      const finalSegs = normalizeSegments(
+        reflowedSegs,
+        dur
+      ); 
+
+      setTranscript(transcribeData?.text || ttsText.trim());
+      setSegments(finalSegs);
+      setCurrentIdx(0);
+      capMetricsMemoRef.current = null;
+    } catch (e: any) {
+      setErr(e?.message || 'TTS failed.');
+    } finally {
+      setIsTtsBusy(false);
     }
+  };
 
-    const transcribeData = await transcribeResponse.json();
-
-    // Step 3: Use precise Whisper segments, but reflow the original text for accuracy
-    let whisperSegs: Array<{ start: number; end: number; text: string }> = 
-      (transcribeData?.segments as any[])?.map((s: any) => ({
-        start: s.start,
-        end: s.end,
-        text: (s.text || '').trim(),
-      })) || [];
-
- // Use Whisper's segments directly for best timing
-const reflowedSegs = whisperSegs.length > 0 
-? whisperSegs
-: buildSegmentsFromTextAndDuration(ttsText.trim(), dur);
-  const finalSegs = normalizeSegments(
-    reflowedSegs,
-    dur
-  ); 
-
-  setTranscript(transcribeData?.text || ttsText.trim());
-    setSegments(finalSegs);
-    setCurrentIdx(0);
-    capMetricsMemoRef.current = null;
-  } catch (e: any) {
-    setErr(e?.message || 'TTS failed.');
-  } finally {
-    setIsTtsBusy(false);
-  }
-};
   // Load saved voice on mount (if valid)
   useEffect(() => {
     try {
@@ -952,7 +951,7 @@ const reflowedSegs = whisperSegs.length > 0
       }
     }
 
-    // Text // Text overlay (free users only)
+    // Text overlay (free users only)
     if (plan === 'free') {
       ctx.save();
       const mainText = 'Start creating at AudioGraffiti.co';
@@ -976,31 +975,32 @@ const reflowedSegs = whisperSegs.length > 0
       const wmX = WIDTH - boxW - 30;
       const wmY = HEIGHT * 0.07;
 
-      // Background
-      ctx.fillStyle = 'rgba(0,0,0,0.8)';
+      // Background (dark blue)
+      ctx.fillStyle = 'rgba(30, 58, 138, 0.9)';
       roundedRectFill(ctx, wmX, wmY, boxW, boxH, 12);
       
-      // Border
-      ctx.strokeStyle = '#FFD700';
+      // Border (light blue)
+      ctx.strokeStyle = '#3B82F6';
       ctx.lineWidth = 2;
       roundedRectPath(ctx, wmX, wmY, boxW, boxH, 12);
       ctx.stroke();
 
-      // Main text
+      // Main text (white)
       ctx.font = `bold ${mainFontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillStyle = '#FFD700';
+      ctx.fillStyle = '#FFFFFF';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       ctx.fillText(mainText, wmX + boxW / 2, wmY + padY);
       
-      // Sub text
+      // Sub text (light blue)
       ctx.font = `${subFontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillStyle = '#FFD700';
+      ctx.fillStyle = '#93C5FD';
       ctx.fillText(subText, wmX + boxW / 2, wmY + padY + mainFontSize + lineSpacing);
       
       ctx.restore();
     }
-    
+  }
+
   /* ========================== LIVE PREVIEW ========================== */
   const previewRef = useRef<HTMLCanvasElement | null>(null);
 
