@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css"; // or whatever your CSS import is
 

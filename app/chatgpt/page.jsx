@@ -2,10 +2,10 @@
 
 import { useState, useRef, useEffect } from 'react'
 
-type AppState = 'recording' | 'selecting-style' | 'generating' | 'sharing'
+
 
 export default function AudioGraffiti() {
-  const [appState, setAppState] = useState<AppState>('recording')
+  const [appState, setAppState] = useState('recording')
   const [isRecording, setIsRecording] = useState(false)
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
   const [selectedStyle, setSelectedStyle] = useState<string>('')
