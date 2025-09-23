@@ -96,17 +96,35 @@ export async function POST(req) {
     // Transcribe using OpenAI Whisper API
     let transcription;
     try {
-      // Create a Blob with the correct name property for OpenAI API
-      const audioBlob = new Blob([buffer], { type: file.type || 'audio/webm' });
-      // Add name property that OpenAI expects
-      audioBlob.name = sanitizedName;
+      console.log(`Attempting transcription with file: ${sanitizedName}, size: ${buffer.length}, type: ${file.type}`);
+      
+      // Create form data for OpenAI API (more reliable than Blob for file uploads)
+      const openaiFormData = new FormData();
+      
+      // Create a proper file-like object for OpenAI
+      const fileForOpenAI = new Blob([buffer], { type: file.type || 'audio/mpeg' });
+      
+      openaiFormData.append('file', fileForOpenAI, sanitizedName);
+      openaiFormData.append('model', 'whisper-1');
+      openaiFormData.append('response_format', 'verbose_json');
+      openaiFormData.append('timestamp_granularities[]', 'segment');
 
-      transcription = await openai.audio.transcriptions.create({
-        file: audioBlob,
-        model: 'whisper-1',
-        response_format: 'verbose_json',
-        timestamp_granularities: ['segment']
+      // Make direct fetch request to OpenAI API instead of using client
+      const openaiResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: openaiFormData
       });
+
+      if (!openaiResponse.ok) {
+        const errorText = await openaiResponse.text();
+        console.error(`OpenAI API error: ${openaiResponse.status} - ${errorText}`);
+        throw new Error(`OpenAI API error: ${openaiResponse.status}`);
+      }
+
+      transcription = await openaiResponse.json();
       
       console.log(`Transcription successful: ${transcription.segments?.length || 0} segments`);
     } catch (apiError) {
@@ -116,14 +134,14 @@ export async function POST(req) {
         code: apiError.code
       });
 
-      if (apiError.status === 413) {
+      if (apiError.message?.includes('413') || apiError.status === 413) {
         return NextResponse.json(
           { error: 'Audio file too large for transcription' },
           { status: 413 }
         );
       }
 
-      if (apiError.status === 400) {
+      if (apiError.message?.includes('400') || apiError.status === 400) {
         return NextResponse.json(
           { error: 'Invalid audio format or corrupted file' },
           { status: 400 }
