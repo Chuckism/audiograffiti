@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { SignInButton, SignUpButton, UserButton, useAuth, useUser } from "@clerk/nextjs";
 
 /* ============================ CONSTANTS ============================ */
 const FORMATS = {
@@ -15,6 +16,12 @@ const MAX_LINES = 3;
 const MAX_WORDS_PER_SEGMENT = 18;
 const DEFAULT_VOICE = 'nova';
 const VOICE_STORAGE_KEY = 'ag:lastVoice';
+
+// Plan-based character limits
+const PLAN_LIMITS = {
+  free: { maxChars: 1000, displayName: 'Free' },
+  pro: { maxChars: 2500, displayName: 'Pro' }
+} as const;
 
 const PRESETS: Array<[string, string]> = [
   ['#0d1117', '#1f2937'],
@@ -40,6 +47,7 @@ declare global {
 }
 
 /* ============================== UTILS ============================== */
+
 function splitWords(s: string) {
   return s.trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
 }
@@ -370,8 +378,25 @@ function segmentIndexAtTime(
   return tailGap <= holdGapSec + EPS ? segs.length - 1 : -1;
 }
 
+/* ====================== USER PLAN DETECTION ====================== */
+function getUserPlan(user: any): 'free' | 'pro' {
+  // Production: Check Clerk user metadata for subscription status
+  // This will be integrated with Stripe after initial testing
+  const plan = user?.publicMetadata?.subscriptionPlan;
+  return plan === 'pro' ? 'pro' : 'free';
+}
+
 /* =========================== COMPONENT ============================ */
 export default function Page() {
+  const { isSignedIn } = useAuth();
+  const { user } = useUser();
+
+  /* User plan detection - production ready */
+  const userPlan = useMemo(() => {
+    if (!user) return 'free';
+    return getUserPlan(user);
+  }, [user]);
+
   /* Format state */
   const [selectedFormat, setSelectedFormat] = useState<FormatKey>('1:1');
 
@@ -399,13 +424,11 @@ export default function Page() {
     Array<{ start: number; end: number; text: string }>
   >([]);
   const [currentIdx, setCurrentIdx] = useState(0);
+  const [isTranscribing, setIsTranscribing] = useState(false);
 
   /* UI */
   const [presetIdx, setPresetIdx] = useState(1);
   const [autoBg, setAutoBg] = useState(true);
-
-  /* User plan */
-  const [userPlan, setUserPlan] = useState<'free' | 'pro'>('free');
 
   /* Export status */
   const [isExporting, setIsExporting] = useState(false);
@@ -419,10 +442,6 @@ export default function Page() {
   const [exportSupported, setExportSupported] = useState<boolean | null>(null);
   const [exportReason, setExportReason] = useState<string>('');
 
-  /* Phone preview modal */
-  const [phonePreviewOpen, setPhonePreviewOpen] = useState(false);
-  const phoneCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
   /* TTS */
   const [voices] = useState<string[]>([
     'alloy',
@@ -435,7 +454,6 @@ export default function Page() {
     'ash',
     'coral',
   ]);
-  const [ttsOpen, setTtsOpen] = useState(true);
   const [ttsText, setTtsText] = useState('');
   const [ttsVoice, setTtsVoice] = useState<string>(DEFAULT_VOICE);
   const [isTtsBusy, setIsTtsBusy] = useState(false);
@@ -445,6 +463,9 @@ export default function Page() {
     { url: string; img: CanvasImageSource }[]
   >([]);
   const [artOpacity, setArtOpacity] = useState<number>(1);
+
+  /* Custom branding text for Pro users */
+  const [customBrandingText, setCustomBrandingText] = useState('');
 
   /* Wake lock */
   const [wakeLock, setWakeLock] = useState<WakeLockSentinel | null>(null);
@@ -578,6 +599,7 @@ export default function Page() {
   const transcribe = async () => {
     try {
       setErr(null);
+      setIsTranscribing(true);
       if (!audioUrl) throw new Error('No audio to transcribe.');
       const res = await fetch(audioUrl);
       const blob = await res.blob();
@@ -616,6 +638,8 @@ export default function Page() {
       capMetricsMemoRef.current = null;
     } catch (e: any) {
       setErr(e?.message || 'Transcription failed.');
+    } finally {
+      setIsTranscribing(false);
     }
   };
 
@@ -623,10 +647,18 @@ export default function Page() {
   const generateTTS = async () => {
     try {
       if (!ttsText.trim()) return;
+
+      // Enforce character limits based on user plan
+      const limit = PLAN_LIMITS[userPlan];
+      if (ttsText.trim().length > limit.maxChars) {
+        setErr(`Text exceeds ${limit.displayName} plan limit of ${limit.maxChars} characters. Current: ${ttsText.trim().length} characters.`);
+        return;
+      }
+
       setIsTtsBusy(true);
       setErr(null);
 
-      // Step 1: Generate TTS audio
+      // Step 1: Generate TTS audio with user plan
       const tt = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -634,6 +666,7 @@ export default function Page() {
           text: ttsText.trim(),
           voice: ttsVoice,
           format: 'mp3',
+          userPlan: userPlan, // Pass the actual user plan
         }),
       });
       if (!tt.ok) {
@@ -812,22 +845,6 @@ export default function Page() {
     }
   }, [audioUrl]);
 
-  // Proactively resume AudioContext on first user gesture
-  const pvAcRef = useRef<AudioContext | null>(null);
-  useEffect(() => {
-    const resume = async () => {
-      try {
-        await pvAcRef.current?.resume?.();
-      } catch {}
-    };
-    window.addEventListener('click', resume, { once: true, passive: true });
-    window.addEventListener('touchstart', resume, { once: true, passive: true });
-    return () => {
-      window.removeEventListener('click', resume);
-      window.removeEventListener('touchstart', resume);
-    };
-  }, []);
-
   /* ===================== EXPORT SUPPORT DETECTOR ===================== */
   function detectExportSupport(): { ok: boolean; reason?: string } {
     const hasCanvasCapture =
@@ -877,7 +894,8 @@ export default function Page() {
     bars: number[] | undefined,
     art: CanvasImageSource | null,
     artOp: number,
-    plan: 'free' | 'pro'
+    plan: 'free' | 'pro',
+    customText: string
   ) {
     // Background gradient
     const g = ctx.createLinearGradient(0, 0, 0, HEIGHT);
@@ -951,241 +969,93 @@ export default function Page() {
       }
     }
 
-    // Text overlay (free users only)
+    // Text-based watermark system (free/pro)
     if (plan === 'free') {
       ctx.save();
-      const mainText = 'Start creating at AudioGraffiti.co';
-      const subText = 'Upgrade to remove this message';
-      const mainFontSize = Math.round(WIDTH * 0.035); // Larger for main text
-      const subFontSize = Math.round(WIDTH * 0.022); // Smaller for sub text
       
-      // Measure text
-      ctx.font = `bold ${mainFontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      const mainMetrics = ctx.measureText(mainText);
-      ctx.font = `${subFontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      const subMetrics = ctx.measureText(subText);
+      // Watermark dimensions - responsive to canvas width
+      const wmHeight = Math.round(HEIGHT * 0.06);
+      const wmWidth = Math.min(WIDTH * 0.75, WIDTH - 20); // Max 75% width, min 20px margins
       
-      const maxWidth = Math.max(mainMetrics.width, subMetrics.width);
-      const padX = 20, padY = 12;
-      const lineSpacing = 4;
-      const boxW = maxWidth + padX * 2;
-      const boxH = mainFontSize + subFontSize + lineSpacing + padY * 2;
-
-      // Position in upper area (7% down from top)
-      const wmX = WIDTH - boxW - 30;
-      const wmY = HEIGHT * 0.07;
-
-      // Background (dark blue)
-      ctx.fillStyle = 'rgba(30, 58, 138, 0.9)';
-      roundedRectFill(ctx, wmX, wmY, boxW, boxH, 12);
+      // Position in upper right with safe margins
+      const wmX = WIDTH - wmWidth - 10;
+      const wmY = HEIGHT * 0.05;
       
-      // Border (light blue)
-      ctx.strokeStyle = '#3B82F6';
-      ctx.lineWidth = 2;
-      roundedRectPath(ctx, wmX, wmY, boxW, boxH, 12);
-      ctx.stroke();
-
-      // Main text (white)
-      ctx.font = `bold ${mainFontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      // Semi-transparent background for readability
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+      roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
+      
+      // Calculate font size that fits the available width
+      const watermarkText = 'Powered by AudioGraffiti.co - Upgrade to customize this message';
+      let fontSize = Math.round(wmHeight * 0.32);
+      ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      
+      // Measure text and reduce font size if it doesn't fit
+      let textWidth = ctx.measureText(watermarkText).width;
+      const maxTextWidth = wmWidth - 20; // 10px padding on each side
+      
+      while (textWidth > maxTextWidth && fontSize > 10) {
+        fontSize -= 1;
+        ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        textWidth = ctx.measureText(watermarkText).width;
+      }
+      
+      // If still too long, use shorter fallback text
+      let finalText = watermarkText;
+      if (textWidth > maxTextWidth) {
+        finalText = 'AudioGraffiti.co - Upgrade to customize';
+        textWidth = ctx.measureText(finalText).width;
+        
+        // If even fallback is too long, use minimal text
+        if (textWidth > maxTextWidth) {
+          finalText = 'AudioGraffiti.co';
+        }
+      }
+      
+      ctx.fillStyle = '#F4D03F'; // Golden yellow
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(finalText, wmX + wmWidth/2, wmY + wmHeight/2);
+      
+      ctx.restore();
+    } else if (plan === 'pro' && customText.trim()) {
+      // Pro user with custom branding text
+      ctx.save();
+      
+      // Watermark dimensions
+      const wmHeight = Math.round(HEIGHT * 0.06);
+      const wmWidth = Math.round(WIDTH * 0.5);
+      
+      // Position in upper right
+      const wmX = WIDTH - wmWidth - 10;
+      const wmY = HEIGHT * 0.05;
+      
+      // Semi-transparent background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+      roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
+      
+      // Custom branding text with size fitting
+      let fontSize = Math.round(wmHeight * 0.4);
+      ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      
+      let textWidth = ctx.measureText(customText.trim()).width;
+      const maxTextWidth = wmWidth - 20;
+      
+      while (textWidth > maxTextWidth && fontSize > 10) {
+        fontSize -= 1;
+        ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        textWidth = ctx.measureText(customText.trim()).width;
+      }
+      
       ctx.fillStyle = '#FFFFFF';
       ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText(mainText, wmX + boxW / 2, wmY + padY);
-      
-      // Sub text (light blue)
-      ctx.font = `${subFontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillStyle = '#93C5FD';
-      ctx.fillText(subText, wmX + boxW / 2, wmY + padY + mainFontSize + lineSpacing);
+      ctx.textBaseline = 'middle';
+      ctx.fillText(customText.trim(), wmX + wmWidth/2, wmY + wmHeight/2);
       
       ctx.restore();
     }
+    // Pro users with no custom text get completely clean videos (no watermark)
   }
-
-  /* ========================== LIVE PREVIEW ========================== */
-  const previewRef = useRef<HTMLCanvasElement | null>(null);
-
-  // One-time audio graph for preview
-  const pvSrcRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const pvAnalyserRef = useRef<AnalyserNode | null>(null);
-  const pvFFTRef = useRef<Uint8Array | null>(null);
-  const pvConnectedRef = useRef(false);
-
-  // Mirrors for RAF loop
-  const segsRef = useRef(segments);
-  const transcriptRef = useRef(transcript);
-  const presetRef = useRef(presetIdx);
-  const autoBgRef = useRef(autoBg);
-  const artOpacityRef = useRef(1);
-  const artworksRef = useRef(artworks);
-  const userPlanRef = useRef(userPlan);
-
-  useEffect(() => { segsRef.current = segments; }, [segments]);
-  useEffect(() => { transcriptRef.current = transcript; }, [transcript]);
-  useEffect(() => { presetRef.current = presetIdx; }, [presetIdx]);
-  useEffect(() => { autoBgRef.current = autoBg; }, [autoBg]);
-  useEffect(() => { artworksRef.current = artworks; }, [artworks]);
-  useEffect(() => { artOpacityRef.current = artOpacity; }, [artOpacity]);
-  useEffect(() => { userPlanRef.current = userPlan; }, [userPlan]);
-
-  // Ensure phone canvas pixel size when opened
-  useEffect(() => {
-    const c = phoneCanvasRef.current;
-    if (c) { c.width = WIDTH; c.height = HEIGHT; }
-  }, [phonePreviewOpen, WIDTH, HEIGHT]);
-
-  // Preview draw + audio routing
-  useEffect(() => {
-    const canvas = previewRef.current;
-    if (!canvas) return;
-    canvas.width = WIDTH;
-    canvas.height = HEIGHT;
-    const ctx = canvas.getContext('2d')!;
-
-    const a = audioRef.current || undefined;
-    if (a) {
-      if (!pvAcRef.current) {
-        const AC: any =
-          (window as any).AudioContext || (window as any).webkitAudioContext;
-        pvAcRef.current = new AC();
-      }
-      if (!pvSrcRef.current) {
-        try { pvSrcRef.current = pvAcRef.current!.createMediaElementSource(a); } catch {}
-      }
-      if (!pvAnalyserRef.current) {
-        pvAnalyserRef.current = pvAcRef.current!.createAnalyser();
-        pvAnalyserRef.current.fftSize = 1024;           
-        pvAnalyserRef.current.smoothingTimeConstant = 0.6; 
-        pvFFTRef.current = new Uint8Array(pvAnalyserRef.current.frequencyBinCount);
-      }
-      // Route analyser to speakers; mute <audio> to avoid double audio
-      if (!pvConnectedRef.current && pvSrcRef.current && pvAnalyserRef.current && pvAcRef.current) {
-        pvSrcRef.current.connect(pvAnalyserRef.current);
-        pvAnalyserRef.current.connect(pvAcRef.current.destination);
-        pvConnectedRef.current = true;
-        try { if (audioRef.current) audioRef.current.muted = true; } catch {}
-      }
-    }
-
-    const computeBars = (() => {
-      const analyser = pvAnalyserRef.current!;
-      const fft = new Uint8Array(analyser.frequencyBinCount);
-      const BINS = 64;
-      const smooth = new Float32Array(BINS);
-      let rollingMax = 0.35;
-      const decay = 0.965;
-
-      return () => {
-        analyser.getByteFrequencyData(fft);
-        const n = fft.length;
-        let tickMax = 0;
-        const out = new Array(BINS);
-
-        for (let i = 0; i < BINS; i++) {
-          const start = Math.floor(Math.pow(i / BINS, 2) * n);
-          const end = Math.max(start + 1, Math.floor(Math.pow((i + 1) / BINS, 2) * n));
-
-          let sum = 0, c = 0;
-          for (let k = start; k < end; k++) { sum += fft[k]; c++; }
-          const avg = (sum / Math.max(1, c)) / 255;  
-          if (avg > tickMax) tickMax = avg;
-
-          const target = Math.pow(avg, 0.85);
-          smooth[i] = smooth[i] * 0.6 + target * 0.4;
-          out[i] = smooth[i];
-        }
-
-        rollingMax = Math.max(rollingMax * decay, tickMax);
-
-        for (let i = 0; i < BINS; i++) {
-          out[i] = out[i] / Math.max(0.18, rollingMax);
-          out[i] = Math.min(1, Math.max(0.06, out[i]));
-        }
-        return out;
-      };
-    })();
-
-    let raf = 0;
-    let fallbackInterval: NodeJS.Timeout | null = null;
-
-    const loop = async () => {
-      try {
-        const el = audioRef.current;
-        const t = el?.currentTime || 0;
-        const dur = el?.duration || 1;
-
-        if (pvAcRef.current?.state === 'suspended' && el && !el.paused) {
-          try { await pvAcRef.current.resume(); } catch {}
-        }
-
-        const grad = (autoBgRef.current
-          ? gradientAtTime(t, dur, presetRef.current)
-          : PRESETS[presetRef.current]) as [string, string];
-
-        const segs = segsRef.current.length
-          ? segsRef.current
-          : [{ start: 0, end: 1, text: transcriptRef.current }];
-
-        const b = computeBars();
-        const slide = slideForTime(
-          t,
-          dur,
-          artworksRef.current.map((a) => ({ img: a.img }))
-        );
-
-        drawFrame(
-          ctx, t, grad, segs, transcriptRef.current, b, slide, artOpacityRef.current, userPlanRef.current
-        );
-
-        const phoneCtx = phoneCanvasRef.current?.getContext('2d') || null;
-        if (phoneCtx) {
-          drawFrame(
-            phoneCtx, t, grad, segs, transcriptRef.current, b, slide, artOpacityRef.current, userPlanRef.current
-          );
-        }
-      } catch (e) {
-        console.error('preview draw error (kept running):', e);
-      }
-
-      if (!document.hidden) { raf = requestAnimationFrame(loop); }
-    };
-
-    const startFallbackTimer = () => {
-      if (!fallbackInterval) { fallbackInterval = setInterval(loop, 250); }
-    };
-    const stopFallbackTimer = () => {
-      if (fallbackInterval) { clearInterval(fallbackInterval); fallbackInterval = null; }
-    };
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        cancelAnimationFrame(raf); startFallbackTimer();
-      } else { stopFallbackTimer(); raf = requestAnimationFrame(loop); }
-    };
-
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    if (document.hidden) startFallbackTimer();
-    else raf = requestAnimationFrame(loop);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      stopFallbackTimer();
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [WIDTH, HEIGHT]);
-
-  // Unmute on teardown
-  useEffect(() => {
-    return () => {
-      try { pvSrcRef.current?.disconnect(); } catch {}
-      try { pvAnalyserRef.current?.disconnect(); } catch {}
-      try { pvAcRef.current?.close(); } catch {}
-      if (audioRef.current) audioRef.current.muted = false;
-      pvSrcRef.current = null;
-      pvAnalyserRef.current = null;
-      pvAcRef.current = null;
-      pvFFTRef.current = null;
-      pvConnectedRef.current = false;
-    };
-  }, []);
 
   /* ======================= RENDER → WEBM (export) ======================= */
   async function renderWebMBlob(onProgress?: (p: number) => void): Promise<Blob> {
@@ -1299,7 +1169,7 @@ export default function Page() {
         artworks.map((x) => ({ img: x.img }))
       );
 
-      drawFrame(ctx, currentTime, grad, segs, transcript, b, slide, artOpacity, userPlan);
+      drawFrame(ctx, currentTime, grad, segs, transcript, b, slide, artOpacity, userPlan, customBrandingText);
 
       const progress = Math.min(currentTime / totalDuration, 1);
       onProgress?.(Math.min(99, Math.floor(progress * 99)));
@@ -1409,44 +1279,47 @@ export default function Page() {
     [segments, currentIdx, transcript]
   );
 
-  const FormatSelector = () => (
-    <div className="mb-3 p-3 rounded-xl bg-black/20 border border-white/10">
-      <div className="text-sm opacity-80 mb-2">Aspect Ratio</div>
-      <div className="grid grid-cols-2 gap-2">
-        {Object.entries(FORMATS).map(([key, format]) => (
-          <button
-            key={key}
-            onClick={() => setSelectedFormat(key as FormatKey)}
-            className={`px-3 py-2 rounded-md text-sm border transition-colors ${
-              selectedFormat === key
-                ? 'bg-yellow-500/90 text-black border-yellow-300'
-                : 'bg-white/10 hover:bg-white/20 border-white/15'
-            }`}
-          >
-            <div className="font-medium">{format.name}</div>
-            <div className="text-xs opacity-70">
-              {format.width}×{format.height}
-            </div>
-          </button>
-        ))}
+  // Authentication check - if not signed in, show sign-in interface
+  if (!isSignedIn) {
+    return (
+      <div className="min-h-dvh w-full bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,.9),#000)] text-white flex items-center justify-center p-4">
+        <div className="w-[420px] max-w-[92vw] rounded-2xl bg-white/5 backdrop-blur-sm shadow-2xl border border-white/10 p-8 text-center">
+          <h1 className="text-2xl font-bold mb-4">AudioGraffiti</h1>
+          <p className="mb-6 opacity-80">Professional audiograms for LinkedIn</p>
+          <div className="space-y-3">
+            <SignInButton mode="modal">
+              <button className="w-full px-4 py-2 bg-yellow-500/90 hover:bg-yellow-500 text-black rounded-md font-medium">
+                Sign In
+              </button>
+            </SignInButton>
+            <SignUpButton mode="modal">
+              <button className="w-full px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md">
+                Sign Up
+              </button>
+            </SignUpButton>
+          </div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
 
+  // If signed in, show the main AudioGraffiti interface
   return (
     <div className="min-h-dvh w-full bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,.9),#000)] text-white flex items-center justify-center p-4">
       <div className="w-[420px] max-w-[92vw] rounded-2xl bg-white/5 backdrop-blur-sm shadow-2xl border border-white/10 p-4">
         {/* header */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-sm opacity-80">AudioGraffiti</div>
-          <div className="h-1.5 w-28 rounded-full bg-white/15 overflow-hidden">
-            <div className="h-full w-2/3 bg-white/40 rounded-full" />
-          </div>
+        <div className="flex items-center justify-between mb-4">
+          <img 
+            src="/audiograffiti-logo.png" 
+            alt="AudioGraffiti" 
+            className="h-8 w-auto"
+          />
+          <UserButton />
         </div>
 
         {/* Export support banner */}
         {exportSupported === false && (
-          <div className="mb-3 rounded-lg border border-yellow-400/40 bg-yellow-500/10 text-yellow-100 p-3 text-sm">
+          <div className="mb-4 rounded-lg border border-yellow-400/40 bg-yellow-500/10 text-yellow-100 p-3 text-sm">
             <div className="font-medium">Export not supported in this browser.</div>
             <div className="mt-1 opacity-80">
               Please use <b>desktop Chrome, Edge, or Firefox</b> (Android Chrome also works).
@@ -1455,351 +1328,364 @@ export default function Page() {
           </div>
         )}
 
-        {/* Aspect ratio selector */}
-        <FormatSelector />
+        {/* Aspect Ratio Section */}
+        <div className="mb-4">
+          <div className="text-sm font-medium mb-2 text-white/90">Aspect Ratio</div>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(FORMATS).map(([key, format]) => (
+              <button
+                key={key}
+                onClick={() => setSelectedFormat(key as FormatKey)}
+                className={`px-3 py-2 rounded-lg text-sm border transition-colors ${
+                  selectedFormat === key
+                    ? 'bg-yellow-500/90 text-black border-yellow-300 font-medium'
+                    : 'bg-white/10 hover:bg-white/20 border-white/15 text-white/90'
+                }`}
+              >
+                <div className="font-medium">{format.name}</div>
+                <div className="text-xs opacity-70">
+                  {format.width}×{format.height}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
 
-        {/* controls */}
-        <div className="flex flex-wrap gap-2 mb-3">
-          {!isRecording ? (
-            <button
-              onClick={startRecord}
-              className="px-3 py-1.5 rounded-md text-sm bg-green-500/90 hover:bg-green-500 text-black border border-green-300 shadow-sm focus:outline-none focus:ring-2 focus:ring-green-300/60"
-            >
-              Record
-            </button>
-          ) : (
-            <button
-              onClick={stopRecord}
-              className="px-3 py-1.5 bg-red-500/90 hover:bg-red-500 rounded-md text-sm text-white"
-            >
-              Stop
-            </button>
-          )}
+        {/* Voice Section */}
+        <div className="mb-4">
+          <div className="text-sm font-medium mb-2 text-white/90">Voice</div>
+          <div className="flex gap-2 mb-2">
+            {!isRecording ? (
+              <button
+                onClick={startRecord}
+                className="px-4 py-2 rounded-lg text-sm bg-green-500/90 hover:bg-green-500 text-black border border-green-300 font-medium"
+              >
+                Record
+              </button>
+            ) : (
+              <button
+                onClick={stopRecord}
+                className="px-4 py-2 bg-red-500/90 hover:bg-red-500 rounded-lg text-sm text-white font-medium"
+              >
+                Stop
+              </button>
+            )}
 
-          <label className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-md text-sm cursor-pointer">
-            Upload Audio
-            <input
-              type="file"
-              accept="audio/*"
-              className="hidden"
-              onChange={(e) => onUploadAudio(e.target.files?.[0] ?? null)}
-            />
-          </label>
+            <label className="px-4 py-2 bg-amber-500/90 hover:bg-amber-500 rounded-lg text-sm cursor-pointer text-black font-medium">
+              Upload Audio
+              <input
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                onChange={(e) => onUploadAudio(e.target.files?.[0] ?? null)}
+              />
+            </label>
 
-          <label className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-md text-sm cursor-pointer">
-            Artwork (up to 3 images)
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => onUploadArtwork(e.target.files)}
-            />
-          </label>
-
-          {artworks.length > 0 && (
-            <button
-              onClick={clearArtwork}
-              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-md text-sm"
-            >
-              Clear Art
-            </button>
-          )}
-
+            {/* Status indicator */}
+            <div className={`ml-auto px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${
+              audioUrl && audioUrl.length > 0
+                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${
+                audioUrl && audioUrl.length > 0 ? 'bg-green-400' : 'bg-gray-400'
+              }`} />
+              {audioUrl && audioUrl.length > 0 ? 'Ready' : 'No Audio'}
+            </div>
+          </div>
+          
+          {/* Transcribe button */}
           <button
             onClick={transcribe}
-            className="px-3 py-1.5 bg-yellow-500/90 hover:bg-yellow-500 rounded-md text-sm ml-auto"
+            disabled={!audioUrl || isTranscribing}
+            className={`w-full px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed ${
+              segments.length > 0
+                ? 'bg-green-500/90 hover:bg-green-500 text-black border border-green-300'
+                : isTranscribing
+                ? 'bg-blue-500/90 text-white'
+                : 'bg-yellow-500/90 hover:bg-yellow-500 text-black'
+            }`}
           >
-            Transcribe
+            {isTranscribing 
+              ? 'Transcribing...' 
+              : segments.length > 0 
+              ? 'Transcription Complete ✓'
+              : 'Transcribe'
+            }
           </button>
         </div>
 
-        {/* artwork order preview + quick tools */}
-        {artworks.length > 0 && (
-          <div className="mb-3">
-            <div className="flex items-center gap-2">
-              {artworks.map((a, i) => (
-                <div
-                  key={a.url}
-                  className="relative h-12 w-12 rounded-md overflow-hidden border border-white/20"
-                  title={`Image ${i + 1}`}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={a.url}
-                    alt={`Artwork ${i + 1}`}
-                    className="h-full w-full object-cover"
-                  />
-                  <span className="absolute -top-1 -left-1 text-[10px] px-1.5 py-0.5 rounded bg-black/70 border border-white/20">
-                    {i + 1}
-                  </span>
-                </div>
-              ))}
+        {/* TTS Section */}
+        <div className="mb-4">
+          <div className="text-sm font-medium mb-2 text-white/90">
+            TTS {userPlan === 'pro' && <span className="text-xs bg-green-500/90 text-black px-1.5 py-0.5 rounded ml-1">HD</span>}
+          </div>
+          
+          {/* Voice selection */}
+          <div className="flex gap-1 flex-wrap mb-3">
+            {voices.map((v) => (
+              <button
+                key={v}
+                onClick={() => setTtsVoice(v)}
+                className={`px-2 py-1 rounded-md text-xs border ${
+                  ttsVoice === v
+                    ? 'bg-yellow-500/90 text-black border-yellow-300'
+                    : 'bg-white/10 hover:bg-white/20 border-white/15 text-white/90'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
 
-              <div className="text-xs opacity-70 ml-2">Order: 1 → 2 → 3</div>
+          {/* TTS Script */}
+          <div className="mb-2">
+            <div className="text-xs text-white/70 mb-1">TTS Script</div>
+            <textarea
+              value={ttsText}
+              onChange={(e) => setTtsText(e.target.value)}
+              rows={3}
+              className="w-full rounded-lg bg-white/10 border border-white/15 p-3 text-sm text-white placeholder-white/50 resize-none"
+              placeholder="Type your script here…"
+              maxLength={PLAN_LIMITS[userPlan].maxChars}
+            />
+          </div>
 
-              {/* quick tools */}
-              <div className="ml-auto flex gap-1">
-                <button
-                  type="button"
-                  onClick={() => setArtworks((prev) => [...prev].reverse())}
-                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15"
-                  title="Reverse the order"
-                >
-                  Reverse
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setArtworks((prev) => (prev.length ? [...prev.slice(1), prev[0]] : prev))
-                  }
-                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15"
-                  title="Rotate order (1→2→3 becomes 2→3→1)"
-                >
-                  Rotate
-                </button>
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              onClick={generateTTS}
+              disabled={isTtsBusy || !ttsText.trim() || ttsText.trim().length > PLAN_LIMITS[userPlan].maxChars}
+              className="px-4 py-2 rounded-lg text-sm bg-green-500/90 hover:bg-green-500 text-black border border-green-300 font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isTtsBusy ? 'Generating…' : 'Generate TTS'}
+            </button>
+            
+            {/* Character count with plan limits */}
+            <div className="text-xs ml-auto">
+              <div className={`${
+                ttsText.trim().length > PLAN_LIMITS[userPlan].maxChars 
+                  ? 'text-red-400' 
+                  : ttsText.trim().length > PLAN_LIMITS[userPlan].maxChars * 0.9
+                  ? 'text-yellow-400'
+                  : 'text-white/60'
+              }`}>
+                {ttsText.trim().length} / {PLAN_LIMITS[userPlan].maxChars}
               </div>
-            </div>
-
-            <div className="mt-1 text-[11px] opacity-60">
-              Tip: Select images in the order you want them to appear. Use <b>Reverse</b> or <b>Rotate</b> to tweak quickly.
-              <br />
-              <span className="opacity-70">
-                Optional: prefix filenames with <b>1-2-3</b> (e.g., "1 cover.jpg", "2 bg.png", "3 logo.png") to enforce that order.
-              </span>
+              <div className="text-white/50 text-[10px]">
+                {userPlan === 'free' ? 'Free limit' : 'Pro limit'}
+              </div>
             </div>
           </div>
-        )}
 
-        {/* TTS composer */}
-        <div className="mb-3 rounded-xl border border-white/10 bg-black/20">
-          <button
-            className="w-full text-left px-3 py-2 text-sm flex items-center justify-between"
-            onClick={() => setTtsOpen((o) => !o)}
-          >
-            <span className="opacity-80">Text → Speech (optional)</span>
-            <span className="opacity-60">{ttsOpen ? '−' : '+'}</span>
-          </button>
-          {ttsOpen && (
-            <div className="px-3 pb-3">
-              <textarea
-                value={ttsText}
-                onChange={(e) => setTtsText(e.target.value)}
-                rows={3}
-                className="w-full rounded-md bg-white/10 border border-white/10 p-2 text-sm"
-                placeholder="Type your script here…"
-              />
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                <div className="flex gap-1 flex-wrap">
-                  {voices.map((v) => (
-                    <button
-                      key={v}
-                      onClick={() => setTtsVoice(v)}
-                      className={`px-2 py-1 rounded-md text-xs border ${
-                        ttsVoice === v
-                          ? 'bg-yellow-500/90 text-black border-yellow-300'
-                          : 'bg-white/10 hover:bg-white/20 border-white/15'
-                      }`}
-                    >
-                      {v}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={generateTTS}
-                  disabled={isTtsBusy || !ttsText.trim()}
-                  className="px-3 py-1.5 rounded-md text-sm bg-green-500/90 hover:bg-green-500 text-black border border-green-300 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-green-300/60"
-                  title={!ttsText.trim() ? 'Type something to enable TTS' : undefined}
-                >
-                  {isTtsBusy ? 'Generating…' : 'Generate TTS'}
-                </button>
-                <div className="text-xs opacity-60 ml-auto">
-                  {ttsText.trim().length} chars
-                </div>
-              </div>
-              <div className="mt-1 text-[11px] opacity-70">
-                Tip: For best timing, prefer simple punctuation; spell out big currency/quantities
-                (e.g., "fifty dollars" over "$50"). Years like "1984" are fine.
-              </div>
+          {/* Character limit warning/upgrade prompt */}
+          {ttsText.trim().length > PLAN_LIMITS[userPlan].maxChars && (
+            <div className="text-xs text-red-400 bg-red-900/20 border border-red-400/30 rounded-lg p-2">
+              {userPlan === 'free' ? (
+                <>Text exceeds Free plan limit. <span className="text-yellow-400">Upgrade to Pro</span> for {PLAN_LIMITS.pro.maxChars} character limit.</>
+              ) : (
+                <>Text exceeds Pro plan limit of {PLAN_LIMITS.pro.maxChars} characters.</>
+              )}
             </div>
           )}
         </div>
 
-        {/* Remove Text Overlay */}
-        <div className="mb-3 rounded-xl border border-white/10 bg-black/20">
-          <div className="px-3 py-2 text-sm flex items-center justify-between">
-            <span className="opacity-80">Remove Text Overlay</span>
-            <span className={`px-2 py-1 rounded text-xs ${userPlan === 'pro' ? 'bg-green-500/90 text-black' : 'bg-gray-500/90 text-white'}`}>
-              {userPlan === 'pro' ? 'PRO' : 'FREE'}
-            </span>
-          </div>
-          <div className="px-3 pb-3">
-            <div className="text-sm opacity-70 mb-2">
-              {userPlan === 'free' ? 'Free videos include promotional text overlay' : 'Your videos have clean, professional appearance'}
-            </div>
-            {userPlan === 'free' && (
-              <button 
-                onClick={() => setUserPlan('pro')} // Temporary - replace with real upgrade flow
-                className="px-3 py-1 bg-yellow-500/90 hover:bg-yellow-500 text-black rounded text-sm"
+        {/* Artwork Section */}
+        <div className="mb-4">
+          <div className="text-sm font-medium mb-2 text-white/90">Artwork</div>
+          
+          <div className="flex gap-2 mb-3">
+            <label className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm cursor-pointer border border-white/15 text-white/90">
+              Artwork (up to 3 images)
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => onUploadArtwork(e.target.files)}
+              />
+            </label>
+
+            {artworks.length > 0 && (
+              <button
+                onClick={clearArtwork}
+                className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm border border-white/15 text-white/90"
               >
-                Upgrade to Pro - $15/month
+                Clear Art
               </button>
             )}
           </div>
+
+          {/* Artwork preview and controls */}
+          {artworks.length > 0 && (
+            <div className="mb-3 p-3 rounded-lg bg-black/20 border border-white/10">
+              <div className="flex items-center gap-2 mb-2">
+                {artworks.map((a, i) => (
+                  <div
+                    key={a.url}
+                    className="relative h-10 w-10 rounded-md overflow-hidden border border-white/20"
+                    title={`Image ${i + 1}`}
+                  >
+                    <img
+                      src={a.url}
+                      alt={`Artwork ${i + 1}`}
+                      className="h-full w-full object-cover"
+                    />
+                    <span className="absolute -top-1 -left-1 text-[9px] px-1 py-0.5 rounded bg-black/80 border border-white/30 text-white">
+                      {i + 1}
+                    </span>
+                  </div>
+                ))}
+
+                <div className="ml-auto flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setArtworks((prev) => [...prev].reverse())}
+                    className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90"
+                  >
+                    Reverse
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setArtworks((prev) => (prev.length ? [...prev.slice(1), prev[0]] : prev))
+                    }
+                    className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90"
+                  >
+                    Rotate
+                  </button>
+                </div>
+              </div>
+              <div className="text-[10px] text-white/60">
+                Order: 1 → 2 → 3 during playback
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* swatches */}
-        <div className="flex gap-2 mb-2">
-          {PRESETS.map((g, i) => (
-            <button
-              key={i}
-              onClick={() => setPresetIdx(i)}
-              aria-label={`Background ${i + 1}`}
-              className={`h-6 w-10 rounded-md border ${
-                presetIdx === i ? 'border-white/80' : 'border-white/20'
-              }`}
-              style={{ background: `linear-gradient(180deg, ${g[0]}, ${g[1]})` }}
-            />
-          ))}
-          <div className="flex items-center gap-2 ml-auto text-xs opacity-80">
-            <span>Auto BG</span>
-            <button
-              onClick={() => setAutoBg((v) => !v)}
-              className={`px-2 py-1 rounded ${
-                autoBg ? 'bg-yellow-500/90 text-black' : 'bg-white/15 hover:bg-white/25'
-              }`}
-            >
-              {autoBg ? 'On' : 'Off'}
-            </button>
+        {/* Custom Branding Section */}
+        <div className="mb-4 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-white/90">Custom Branding</span>
+            <span className={`px-2 py-1 rounded text-xs font-medium ${
+              userPlan === 'pro' 
+                ? 'bg-green-500/90 text-black' 
+                : 'bg-gray-500/90 text-white'
+            }`}>
+              {userPlan === 'pro' ? 'PRO' : 'FREE'}
+            </span>
+          </div>
+          <div className="text-xs text-white/70 mb-2">
+            {userPlan === 'free' 
+              ? 'Free videos include "Powered by AudioGraffiti.co" watermark. Upgrade to Pro for custom branding.' 
+              : 'Add your custom text to brand your videos (company name, website, tagline, etc.)'
+            }
+          </div>
+          {userPlan === 'pro' ? (
+            <div>
+              <input
+                type="text"
+                value={customBrandingText}
+                onChange={(e) => setCustomBrandingText(e.target.value)}
+                placeholder="Enter your branding text (e.g., YourCompany.com)"
+                className="w-full rounded-lg bg-white/10 border border-white/15 p-2 text-sm text-white placeholder-white/50"
+                maxLength={50}
+              />
+              <div className="mt-1 text-xs text-white/60">
+                {customBrandingText.length}/50 characters
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-white/60">
+              Pro plan required for custom branding
+            </div>
+          )}
+        </div>
+
+        {/* Background swatches */}
+        <div className="mb-4">
+          <div className="flex gap-2 items-center">
+            {PRESETS.map((g, i) => (
+              <button
+                key={i}
+                onClick={() => setPresetIdx(i)}
+                className={`h-6 w-8 rounded-md border transition-all ${
+                  presetIdx === i ? 'border-white/80 scale-110' : 'border-white/20 hover:border-white/40'
+                }`}
+                style={{ background: `linear-gradient(180deg, ${g[0]}, ${g[1]})` }}
+              />
+            ))}
+            
+            <div className="flex items-center gap-2 ml-auto text-xs text-white/80">
+              <span>Auto BG</span>
+              <button
+                onClick={() => setAutoBg((v) => !v)}
+                className={`px-2 py-1 rounded transition-colors ${
+                  autoBg 
+                    ? 'bg-yellow-500/90 text-black font-medium' 
+                    : 'bg-white/15 hover:bg-white/25 text-white/90'
+                }`}
+              >
+                {autoBg ? 'On' : 'Off'}
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* LIVE PREVIEW */}
-        <div
-          className="rounded-2xl overflow-hidden border border-white/10"
-          style={{ height: '560px' }}
-        >
-          <canvas
-            ref={previewRef}
-            style={{ width: '100%', height: '100%', display: 'block' }}
-          />
-        </div>
-
-        {/* export row */}
-        <div className="mt-3 grid grid-cols-2 gap-2 items-stretch">
+        {/* Export Section */}
+        <div className="mb-4">
           <button
             onClick={exportMP4}
-            disabled={isExporting || exportSupported === false}
-            className="px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-sm disabled:opacity-60"
-            title={exportSupported === false ? 'Use desktop Chrome/Edge/Firefox for export' : undefined}
+            disabled={isExporting || exportSupported === false || !segments.length}
+            className="w-full px-4 py-3 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed border border-white/15"
+            title={
+              exportSupported === false 
+                ? 'Use desktop Chrome/Edge/Firefox for export' 
+                : !segments.length 
+                ? 'Transcribe audio first'
+                : undefined
+            }
           >
             Export MP4
           </button>
-
-          {/* Single Phone Preview button (opens + starts audio) */}
-          <button
-            type="button"
-            onClick={async () => {
-              try {
-                setPhonePreviewOpen(true);
-                await pvAcRef.current?.resume?.();
-                const el = audioRef.current;
-                if (el) {
-                  el.muted = true; // WebAudio path is audible
-                  el.volume = 1;
-                  if (el.paused) await el.play();
-                }
-              } catch (e: any) {
-                setErr(
-                  e?.message ||
-                    'Playback was blocked. Click anywhere on the page once, then press Phone Preview again.'
-                );
-              }
-            }}
-            className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-sm border border-white/15"
-            title="Open phone-style live preview"
-          >
-            Phone Preview
-          </button>
-
-          <div className="col-span-2 flex items-center justify-end text-xs opacity-70">
-            {isExporting
-              ? phase === 'render'
+          
+          {isExporting && (
+            <div className="mt-2 text-xs text-white/70 text-center">
+              {phase === 'render'
                 ? `Rendering… ${renderPct}%`
                 : phase === 'encode'
                 ? 'Encoding…'
                 : phase === 'save'
                 ? 'Saving…'
-                : 'Working…'
-              : null}
-          </div>
+                : 'Working…'}
+            </div>
+          )}
         </div>
 
-        {/* player */}
-        <div className="mt-2 p-3 rounded-xl bg-black/20 border border-white/10">
+        {/* Audio Player */}
+        <div className="p-3 rounded-lg bg-black/20 border border-white/10">
           <audio
             ref={audioRef}
             src={audioUrl || undefined}
             controls
             playsInline
             preload="auto"
-            className="w-full"
+            className="w-full mb-2"
           />
-          <div className="mt-1 flex justify-between text-xs opacity-70">
-            <div>Chunks: {Math.max(1, segments.length)}</div>
+          <div className="flex justify-between text-xs text-white/60">
+            <div>Segments: {Math.max(1, segments.length)}</div>
             <div>
               Current: {segments.length ? `${Math.min(currentIdx + 1, segments.length)}/${segments.length}` : '—'}
             </div>
           </div>
         </div>
 
+        {/* Error display */}
         {err && (
-          <div className="mt-3 text-sm text-red-300 bg-red-900/30 rounded-md p-2 border border-red-400/30 whitespace-pre-wrap">
+          <div className="mt-3 text-sm text-red-300 bg-red-900/30 rounded-lg p-3 border border-red-400/30 whitespace-pre-wrap">
             {err}
           </div>
         )}
       </div>
-
-      {/* phone-frame modal */}
-      {phonePreviewOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setPhonePreviewOpen(false)}
-        >
-          <div className="relative" onClick={(e) => e.stopPropagation()}>
-            {/* device shell */}
-            <div
-              className="relative bg-black rounded-[2.5rem] p-5 shadow-2xl border border-white/10"
-              style={{ width: '380px' }}
-            >
-              {/* notch */}
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 h-6 w-28 bg-black rounded-b-2xl" />
-              {/* screen */}
-              <div
-                className="rounded-[2rem] overflow-hidden border border-white/10"
-                style={{ aspectRatio: `${WIDTH}/${HEIGHT}` }}
-              >
-                <canvas
-                  ref={phoneCanvasRef}
-                  style={{ width: '100%', height: '100%', display: 'block' }}
-                />
-              </div>
-            </div>
-
-            {/* close button */}
-            <button
-              onClick={() => {
-                setPhonePreviewOpen(false);
-                if (audioRef.current) audioRef.current.muted = false; // restore element audio when closing
-              }}
-              className="absolute -top-3 -right-3 h-8 w-8 rounded-full bg-white text-black text-sm"
-              aria-label="Close phone preview"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

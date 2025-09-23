@@ -1,175 +1,249 @@
 // app/api/convert-mp4/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
-import { access, writeFile, readFile, unlink } from "fs/promises";
-import { constants as FsConstants } from "fs";
-import os from "os";
+import { promises as fs } from "fs";
 import path from "path";
+import { createHash } from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300; // 5 minutes for video processing
 
-const FPS = 30;
+/* ------------------ CONFIG ------------------ */
+const TEMP_DIR = process.env.NODE_ENV === 'production' ? '/tmp' : path.join(process.cwd(), '.next', 'temp');
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB max file size
+const CLEANUP_DELAY = 5000; // 5 seconds before cleanup
 
-/** Choose a safe temp path. */
-function tmpPath(ext: string) {
-  const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return path.join(os.tmpdir(), `audiograffiti-${id}.${ext}`);
+/* ------------------ UTILS ------------------ */
+function generateTempId(): string {
+  return createHash('md5').update(Date.now() + Math.random().toString()).digest('hex').slice(0, 12);
 }
 
-/** Resolve ffmpeg via env first, then system ffmpeg. */
-async function resolveFfmpegPath(): Promise<{ path: string; source: "env" | "system" }> {
-  const envPath = process.env.FFMPEG_PATH?.trim();
-  if (envPath) {
-    try {
-      await access(envPath, FsConstants.X_OK).catch(async () => {
-        await access(envPath, FsConstants.F_OK);
-      });
-      return { path: envPath, source: "env" };
-    } catch {
-      // fall through
-    }
-  }
-  
-  // Use system ffmpeg (available on Render)
-  return { path: "ffmpeg", source: "system" };
-}
-
-export async function POST(req: NextRequest) {
-  let usedBinary = "";
-  let triedPath = "";
-  let stderrBuf: Buffer[] = [];
-
-  // temp files we'll clean up
-  let inPath: string | null = null;
-  let outPath: string | null = null;
-
+async function ensureTempDir() {
   try {
-    const form = await req.formData();
-    const file = form.get("file");
-    if (!(file instanceof Blob)) {
-      return NextResponse.json({ error: "No file provided." }, { status: 400 });
-    }
+    await fs.mkdir(TEMP_DIR, { recursive: true });
+  } catch (error) {
+    console.warn('Temp directory creation failed:', error);
+  }
+}
 
-    const buf = Buffer.from(await file.arrayBuffer());
-    if (buf.byteLength < 1024) {
-      return NextResponse.json({ error: "Input video too small." }, { status: 400 });
-    }
+async function cleanupFile(filePath: string) {
+  try {
+    await fs.unlink(filePath);
+  } catch (error) {
+    console.warn('File cleanup failed:', filePath, error);
+  }
+}
 
-    // Pick input extension based on MIME (helps some ffmpeg builds)
-    const mime = (file as any).type || "";
-    const ext =
-      mime.includes("webm") ? "webm" :
-      mime.includes("ogg") ? "ogg" :
-      mime.includes("wav") ? "wav" :
-      mime.includes("mpeg") || mime.includes("mp3") ? "mp3" :
-      "dat";
+function findFFmpegPath(): string {
+  // Common FFmpeg locations in different environments
+  const possiblePaths = [
+    '/usr/bin/ffmpeg',           // Standard Linux
+    '/usr/local/bin/ffmpeg',     // Homebrew/custom installs
+    'ffmpeg',                    // System PATH
+  ];
 
-    inPath = tmpPath(ext);
-    outPath = tmpPath("mp4");
+  // In production (Render), FFmpeg should be available in PATH
+  if (process.env.NODE_ENV === 'production') {
+    return 'ffmpeg';
+  }
 
-    // Write input to disk
-    await writeFile(inPath, buf);
+  // For development, try to find FFmpeg
+  return possiblePaths[0]; // Default to standard location
+}
 
-    // Resolve ffmpeg
-    const { path: ffmpegPath } = await resolveFfmpegPath();
-    usedBinary = ffmpegPath;
-    triedPath = ffmpegPath;
-
-    // File → file transcode (no pipes)
+async function convertWebMToMP4(inputPath: string, outputPath: string): Promise<{
+  success: boolean;
+  ffmpegPath?: string;
+  stderr?: string;
+  stdout?: string;
+}> {
+  const ffmpegPath = findFFmpegPath();
+  
+  return new Promise((resolve) => {
     const args = [
-      "-hide_banner",
-      "-loglevel", "error",
-      "-y",
-      "-i", inPath,
-    
-      // More memory-efficient video settings
-      "-c:v", "libx264",
-      "-preset", "ultrafast",     // Faster encoding, less memory
-      "-crf", "28",               // Lower quality but smaller file
-      "-pix_fmt", "yuv420p",
-      "-r", "15",                 // Reduced frame rate from 30 to 15
-      "-vf", "scale=720:720",     // Smaller resolution
-    
-      // Audio
-      "-c:a", "aac",
-      "-b:a", "128k",             // Reduced bitrate from 192k
-    
-      "-movflags", "+faststart",
-      outPath,
+      '-i', inputPath,                    // Input file
+      '-c:v', 'libx264',                  // Video codec
+      '-c:a', 'aac',                      // Audio codec
+      '-preset', 'medium',                // Encoding speed vs quality balance
+      '-crf', '23',                       // Quality setting (18-28 range)
+      '-movflags', '+faststart',          // Web optimization
+      '-y',                               // Overwrite output file
+      outputPath                          // Output file
     ];
 
-    const child = spawn(ffmpegPath, args, {
-      stdio: ["ignore", "ignore", "pipe"],
-      windowsHide: true,
-      shell: false,
+    console.log(`Starting FFmpeg conversion: ${ffmpegPath} ${args.join(' ')}`);
+    
+    const ffmpeg = spawn(ffmpegPath, args);
+    let stdout = '';
+    let stderr = '';
+
+    ffmpeg.stdout.on('data', (data) => {
+      stdout += data.toString();
     });
 
-    child.stderr.on("data", (d) => {
-      stderrBuf.push(Buffer.isBuffer(d) ? d : Buffer.from(String(d)));
+    ffmpeg.stderr.on('data', (data) => {
+      stderr += data.toString();
     });
 
-    const code: number = await new Promise((resolve, reject) => {
-      child.once("error", reject);
-      child.once("close", (exitCode) => resolve(typeof exitCode === "number" ? exitCode : 1));
+    ffmpeg.on('close', (code) => {
+      const success = code === 0;
+      
+      if (success) {
+        console.log('FFmpeg conversion completed successfully');
+      } else {
+        console.error('FFmpeg conversion failed with code:', code);
+        console.error('FFmpeg stderr:', stderr.slice(-500)); // Last 500 chars
+      }
+
+      resolve({
+        success,
+        ffmpegPath,
+        stderr: stderr.slice(-1000), // Last 1000 chars for debugging
+        stdout: stdout.slice(-500)   // Last 500 chars
+      });
     });
 
-    const stderrTail = Buffer.concat(stderrBuf).toString("utf8").slice(-2000);
-
-    if (code !== 0) {
-      return NextResponse.json(
-        { error: "Transcode failed.", ffmpegPathTried: triedPath, usedBinary, stderrTail },
-        { status: 500 }
-      );
-    }
-
-    // Read result and send
-    const mp4 = await readFile(outPath);
-    if (mp4.length < 1024) {
-      return NextResponse.json(
-        { error: "MP4 output unexpectedly small.", ffmpegPathTried: triedPath, usedBinary, stderrTail },
-        { status: 500 }
-      );
-    }
-
-    return new NextResponse(mp4, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "Cache-Control": "no-store",
-        "Content-Disposition": 'attachment; filename="audiograffiti.mp4"',
-      },
+    ffmpeg.on('error', (error) => {
+      console.error('FFmpeg spawn error:', error);
+      resolve({
+        success: false,
+        ffmpegPath,
+        stderr: `Spawn error: ${error.message}`,
+      });
     });
-  } catch (err: any) {
-    const stderrTail = Buffer.concat(stderrBuf).toString("utf8").slice(-2000);
-    return NextResponse.json(
-      {
-        error: err?.message || "Convert error.",
-        ffmpegPathTried: triedPath || process.env.FFMPEG_PATH || "(none)",
-        usedBinary: usedBinary || "(none)",
-        stderrTail,
-      },
-      { status: 500 }
-    );
-  } finally {
-    // Clean up temp files
-    if (inPath) { try { await unlink(inPath); } catch {} }
-    if (outPath) { try { await unlink(outPath); } catch {} }
-  }
+  });
 }
 
-/** Optional GET ping for health/debug. */
-export async function GET() {
+/* ------------------ HANDLER ------------------ */
+export async function POST(req: NextRequest) {
+  const tempId = generateTempId();
+  let inputPath: string | null = null;
+  let outputPath: string | null = null;
+
   try {
-    let ffmpegPath = "(not checked)";
-    try {
-      const { path } = await resolveFfmpegPath();
-      ffmpegPath = path;
-    } catch {
-      ffmpegPath = "(not found)";
+    // Ensure temp directory exists
+    await ensureTempDir();
+
+    // Parse multipart form data
+    const formData = await req.formData();
+    const file = formData.get('file') as File;
+
+    if (!file) {
+      return NextResponse.json(
+        { error: 'No file provided' },
+        { status: 400 }
+      );
     }
-    return NextResponse.json({ ok: true, message: "convert-mp4 route is alive", ffmpegPath, runtime: "nodejs" });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Unknown" }, { status: 500 });
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB` },
+        { status: 413 }
+      );
+    }
+
+    // Validate file type
+    if (!file.type.includes('webm') && !file.name.toLowerCase().includes('webm')) {
+      return NextResponse.json(
+        { error: 'Only WebM files are supported' },
+        { status: 400 }
+      );
+    }
+
+    console.log(`Processing video conversion: ${file.name} (${file.size} bytes)`);
+
+    // Setup file paths
+    inputPath = path.join(TEMP_DIR, `input_${tempId}.webm`);
+    outputPath = path.join(TEMP_DIR, `output_${tempId}.mp4`);
+
+    // Write input file
+    const buffer = Buffer.from(await file.arrayBuffer());
+    await fs.writeFile(inputPath, buffer);
+
+    console.log(`Input file written: ${inputPath}`);
+
+    // Convert with FFmpeg
+    const conversionResult = await convertWebMToMP4(inputPath, outputPath);
+
+    if (!conversionResult.success) {
+      return NextResponse.json({
+        error: 'Video conversion failed',
+        ffmpegPath: conversionResult.ffmpegPath,
+        stderrTail: conversionResult.stderr,
+      }, { status: 500 });
+    }
+
+    // Verify output file exists and has content
+    try {
+      const outputStats = await fs.stat(outputPath);
+      if (outputStats.size === 0) {
+        throw new Error('Output file is empty');
+      }
+      console.log(`Conversion successful: ${outputStats.size} bytes`);
+    } catch (error) {
+      return NextResponse.json({
+        error: 'Conversion appeared to succeed but output file is invalid',
+        ffmpegPath: conversionResult.ffmpegPath,
+        stderrTail: conversionResult.stderr,
+      }, { status: 500 });
+    }
+
+    // Read output file
+    const outputBuffer = await fs.readFile(outputPath);
+
+    // Schedule cleanup (don't await - let it happen in background)
+    setTimeout(async () => {
+      if (inputPath) await cleanupFile(inputPath);
+      if (outputPath) await cleanupFile(outputPath);
+    }, CLEANUP_DELAY);
+
+    // Return MP4 file
+    return new NextResponse(outputBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'video/mp4',
+        'Content-Disposition': 'attachment; filename="audiograffiti-export.mp4"',
+        'X-Conversion-Success': '1',
+        'X-FFmpeg-Path': conversionResult.ffmpegPath || 'unknown',
+      },
+    });
+
+  } catch (error: any) {
+    console.error('Video conversion error:', {
+      error: error.message,
+      stack: error.stack,
+      tempId,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Emergency cleanup
+    if (inputPath) await cleanupFile(inputPath);
+    if (outputPath) await cleanupFile(outputPath);
+
+    // Determine error type and provide appropriate response
+    let statusCode = 500;
+    let errorMessage = 'Video conversion failed';
+
+    if (error.message?.includes('ENOENT') || error.message?.includes('spawn')) {
+      errorMessage = 'Video conversion service unavailable';
+      statusCode = 503;
+    } else if (error.message?.includes('timeout')) {
+      errorMessage = 'Video conversion timed out';
+      statusCode = 504;
+    } else if (error.message?.includes('disk') || error.message?.includes('space')) {
+      errorMessage = 'Insufficient server resources for conversion';
+      statusCode = 507;
+    }
+
+    return NextResponse.json({
+      error: errorMessage,
+      tempId,
+      ...(process.env.NODE_ENV === 'development' && {
+        debug: error.message,
+        stack: error.stack?.split('\n').slice(0, 5).join('\n')
+      })
+    }, { status: statusCode });
   }
 }
