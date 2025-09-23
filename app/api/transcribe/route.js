@@ -118,19 +118,22 @@ export async function POST(req) {
       );
     }
 
-    // Prepare file for OpenAI (they need a proper filename)
+    // Prepare file for OpenAI - use the original file with sanitized name property
     const sanitizedName = sanitizeFileName(file.name || 'audio.webm');
-    const fileForAPI = new File([file], sanitizedName, { 
-      type: file.type || 'audio/webm' 
+    
+    // Add the sanitized name as a property for OpenAI
+    Object.defineProperty(file, 'name', { 
+      value: sanitizedName, 
+      writable: false 
     });
 
     console.log(`Starting transcription with Whisper API: ${sanitizedName}`);
     
     const startTime = Date.now();
 
-    // Call OpenAI Whisper API
+    // Call OpenAI Whisper API - pass the file directly
     const transcription = await openai.audio.transcriptions.create({
-      file: fileForAPI,
+      file: file,
       model: "whisper-1",
       response_format: "verbose_json", // Get timestamps
       timestamp_granularities: ["segment"], // Get segment-level timestamps
