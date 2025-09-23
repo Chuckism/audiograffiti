@@ -67,7 +67,7 @@ export async function POST(req) {
       );
     }
 
-    const file = formData.get('audio');
+    const file = formData.get('audio') || formData.get('file');
     if (!file) {
       console.error('No audio file in form data');
       return NextResponse.json(
