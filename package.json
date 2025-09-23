@@ -13,7 +13,7 @@
     "postbuild": "echo 'Build completed successfully'"
   },
   "dependencies": {
-    "@clerk/nextjs": "^4.29.5",
+    "@clerk/nextjs": "^4.31.8",
     "next": "14.0.4",
     "openai": "^4.24.7",
     "react": "^18.2.0",
