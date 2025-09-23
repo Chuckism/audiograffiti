@@ -2,7 +2,7 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css"; // or whatever your CSS import is
 
-export const metadata: Metadata = {
+export const Metadata = {
   title: "AudioGraffiti",
   description: "Professional audiograms for LinkedIn",
 };
