@@ -7,211 +7,171 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60; // 1 minute timeout for transcription
 
 /* ------------------ CONFIG ------------------ */
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB - OpenAI's limit
-const SUPPORTED_FORMATS = [
-  'audio/mpeg',
-  'audio/mp3',
-  'audio/wav',
-  'audio/webm',
-  'audio/ogg',
-  'audio/m4a',
-  'audio/mp4',
-  'video/webm',
-  'video/mp4'
-];
-
-// Environment validation
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-if (!OPENAI_API_KEY) {
-  console.error('⚠️  OPENAI_API_KEY environment variable is required for transcription');
-}
-
-/* ------------------ CLIENT ------------------ */
-const openai = new OpenAI({ 
-  apiKey: OPENAI_API_KEY,
-  timeout: 45000, // 45 second timeout
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
-/* ------------------ VALIDATION ------------------ */
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB limit
+const MIN_FILE_SIZE = 1024; // 1KB minimum
+const ALLOWED_TYPES = ['audio/mpeg', 'audio/wav', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+
+/* ------------------ HELPER FUNCTIONS ------------------ */
 function validateAudioFile(file) {
-  // Check file size
+  if (!file) {
+    return { isValid: false, error: 'No audio file provided' };
+  }
+
   if (file.size > MAX_FILE_SIZE) {
-    return {
-      isValid: false,
-      error: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB`
-    };
+    return { isValid: false, error: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB` };
   }
 
-  // Check minimum file size
-  if (file.size < 100) {
-    return {
-      isValid: false,
-      error: 'File is too small to be a valid audio file'
-    };
+  if (file.size < MIN_FILE_SIZE) {
+    return { isValid: false, error: 'File too small. Minimum size is 1KB' };
   }
 
-  // Check file type
-  const isTypeSupported = SUPPORTED_FORMATS.some(format => 
-    file.type.includes(format.split('/')[1]) || 
-    file.name.toLowerCase().includes(format.split('/')[1])
-  );
-
-  if (!isTypeSupported) {
-    return {
-      isValid: false,
-      error: `Unsupported file format. Supported formats: ${SUPPORTED_FORMATS.join(', ')}`
-    };
+  if (file.type && !ALLOWED_TYPES.includes(file.type)) {
+    return { isValid: false, error: `Unsupported file type: ${file.type}. Supported types: ${ALLOWED_TYPES.join(', ')}` };
   }
 
   return { isValid: true };
 }
 
 function sanitizeFileName(fileName) {
-  // Ensure we have a reasonable filename for OpenAI
-  const cleaned = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const parts = cleaned.split('.');
-  const extension = parts.pop() || 'webm';
-  const baseName = parts.join('.') || 'audio';
-  
-  return `${baseName.slice(0, 50)}.${extension}`;
+  if (!fileName) return 'audio.webm';
+  return fileName.replace(/[^a-zA-Z0-9.-]/g, '_').substring(0, 100);
 }
 
-/* ------------------ HANDLER ------------------ */
+/* ------------------ MAIN API HANDLER ------------------ */
 export async function POST(req) {
   try {
-    // Environment check
-    if (!OPENAI_API_KEY) {
-      console.error('Transcription API called without OpenAI API key configured');
+    console.log('Transcription API called');
+
+    // Validate environment
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('Missing OpenAI API key');
       return NextResponse.json(
-        { error: "Transcription service is not properly configured" },
+        { error: 'OpenAI API key not configured' },
         { status: 500 }
       );
     }
 
-    // Parse multipart form data
+    // Parse form data
     let formData;
     try {
       formData = await req.formData();
     } catch (error) {
+      console.error('Failed to parse form data:', error);
       return NextResponse.json(
-        { error: "Invalid form data" },
+        { error: 'Invalid form data' },
         { status: 400 }
       );
     }
 
-    const file = formData.get('file');
+    const file = formData.get('audio');
     if (!file) {
+      console.error('No audio file in form data');
       return NextResponse.json(
-        { error: "No audio file provided" },
+        { error: 'No audio file provided' },
         { status: 400 }
       );
     }
 
-    console.log(`Transcription request: ${file.name} (${file.size} bytes, ${file.type})`);
-
-    // Validate the audio file
+    // Validate file
     const validation = validateAudioFile(file);
     if (!validation.isValid) {
+      console.error('File validation failed:', validation.error);
       return NextResponse.json(
         { error: validation.error },
         { status: 400 }
       );
     }
 
-    // Prepare file for OpenAI - use the original file with sanitized name property
     const sanitizedName = sanitizeFileName(file.name || 'audio.webm');
-    
-    // Add the sanitized name as a property for OpenAI
-    Object.defineProperty(file, 'name', { 
-      value: sanitizedName, 
-      writable: false 
-    });
+    console.log(`Transcription request: ${sanitizedName} (${file.size} bytes, ${file.type || 'unknown type'})`);
 
-    console.log(`Starting transcription with Whisper API: ${sanitizedName}`);
-    
-    const startTime = Date.now();
+    // Convert file to buffer for OpenAI API
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
 
-    // Call OpenAI Whisper API - pass the file directly
-    const transcription = await openai.audio.transcriptions.create({
-      file: file,
-      model: "whisper-1",
-      response_format: "verbose_json", // Get timestamps
-      timestamp_granularities: ["segment"], // Get segment-level timestamps
-    });
+    // Transcribe using OpenAI Whisper API
+    let transcription;
+    try {
+      // Create a Blob with the correct name property for OpenAI API
+      const audioBlob = new Blob([buffer], { type: file.type || 'audio/webm' });
+      // Add name property that OpenAI expects
+      audioBlob.name = sanitizedName;
 
-    const processingTime = Date.now() - startTime;
+      transcription = await openai.audio.transcriptions.create({
+        file: audioBlob,
+        model: 'whisper-1',
+        response_format: 'verbose_json',
+        timestamp_granularities: ['segment']
+      });
+      
+      console.log(`Transcription successful: ${transcription.segments?.length || 0} segments`);
+    } catch (apiError) {
+      console.error('OpenAI API error:', {
+        message: apiError.message,
+        status: apiError.status,
+        code: apiError.code
+      });
 
-    // Validate transcription response
-    if (!transcription.text || transcription.text.trim().length === 0) {
+      if (apiError.status === 413) {
+        return NextResponse.json(
+          { error: 'Audio file too large for transcription' },
+          { status: 413 }
+        );
+      }
+
+      if (apiError.status === 400) {
+        return NextResponse.json(
+          { error: 'Invalid audio format or corrupted file' },
+          { status: 400 }
+        );
+      }
+
       return NextResponse.json(
-        { error: "No speech detected in audio file" },
-        { status: 422 }
+        { error: 'Transcription service temporarily unavailable' },
+        { status: 503 }
       );
     }
 
-    // Process segments for consistent format
-    const segments = (transcription.segments || []).map((seg) => ({
-      start: Number(seg.start) || 0,
-      end: Number(seg.end) || 0,
-      text: (seg.text || '').trim()
-    })).filter((seg) => seg.text.length > 0);
+    // Process segments
+    const segments = (transcription.segments || []).map((segment, index) => ({
+      id: index,
+      start: segment.start || 0,
+      end: segment.end || 1,
+      text: (segment.text || '').trim()
+    })).filter(seg => seg.text.length > 0);
 
-    const response = {
-      text: transcription.text.trim(),
+    console.log(`Processed ${segments.length} valid segments`);
+
+    // Return successful response
+    return NextResponse.json({
+      success: true,
+      text: transcription.text || '',
       segments: segments,
-      language: transcription.language || 'unknown',
-      duration: transcription.duration || 0
-    };
-
-    console.log(`Transcription completed: ${response.text.length} characters, ${segments.length} segments in ${processingTime}ms`);
-
-    return NextResponse.json(response, {
-      status: 200,
-      headers: {
-        'X-Processing-Time': processingTime.toString(),
-        'X-Segments-Count': segments.length.toString(),
-        'X-Text-Length': response.text.length.toString(),
+      duration: segments.length > 0 ? Math.max(...segments.map(s => s.end)) : 0,
+      metadata: {
+        fileSize: file.size,
+        fileName: sanitizedName,
+        segmentCount: segments.length
       }
     });
 
   } catch (error) {
-    // Enhanced error logging
     console.error('Transcription failed:', {
       error: error.message,
-      stack: error.stack?.split('\n').slice(0, 5).join('\n'),
-      timestamp: new Date().toISOString(),
+      stack: error.stack,
+      timestamp: new Date().toISOString()
     });
 
-    // Determine error type and provide user-friendly messages
-    let userMessage = "Transcription failed";
-    let statusCode = 500;
-
-    if (error.message?.includes('API key')) {
-      userMessage = "Transcription service configuration error";
-      statusCode = 503;
-    } else if (error.message?.includes('rate limit') || error.message?.includes('quota')) {
-      userMessage = "Transcription service is temporarily busy, please try again";
-      statusCode = 429;
-    } else if (error.message?.includes('timeout')) {
-      userMessage = "Transcription timed out, please try again with a shorter audio file";
-      statusCode = 504;
-    } else if (error.message?.includes('file') || error.message?.includes('format')) {
-      userMessage = "Audio file format not supported or corrupted";
-      statusCode = 422;
-    } else if (error.message?.includes('duration') || error.message?.includes('too long')) {
-      userMessage = "Audio file is too long. Please use audio shorter than 10 minutes";
-      statusCode = 422;
-    } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
-      userMessage = "Network error during transcription, please try again";
-      statusCode = 503;
-    }
-
-    return NextResponse.json({
-      error: userMessage,
-      ...(process.env.NODE_ENV === 'development' && {
-        debug: error.message,
-        type: error.constructor.name
-      })
-    }, { status: statusCode });
+    return NextResponse.json(
+      { 
+        error: 'Internal transcription error',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      },
+      { status: 500 }
+    );
   }
 }
