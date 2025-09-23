@@ -1,4 +1,4 @@
-// app/api/tts/route.ts
+// app/api/tts/route.js
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createHash } from "crypto";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 /* ------------------ CONFIG ------------------ */
 const DEFAULT_MODEL = (process.env.TTS_MODEL || "tts-1").trim();        // default TTS model
-const DEFAULT_FORMAT: "mp3" | "wav" | "ogg" = "mp3";
+const DEFAULT_FORMAT = "mp3";
 const DEFAULT_VOICE = (process.env.TTS_DEFAULT_VOICE || "nova").trim();
 
 // Production-safe cache directory
@@ -35,7 +35,7 @@ const openai = new OpenAI({
 });
 
 /* ------------------ UTILS ------------------ */
-function mimeFrom(format: string) {
+function mimeFrom(format) {
   switch ((format || "").toLowerCase()) {
     case "mp3": return "audio/mpeg";
     case "wav": return "audio/wav";
@@ -44,21 +44,21 @@ function mimeFrom(format: string) {
   }
 }
 
-function normalizeSpaces(s: string) {
+function normalizeSpaces(s) {
   return String(s || "").replace(/\s+/g, " ").trim();
 }
 
-function sha256(s: string) {
+function sha256(s) {
   return createHash("sha256").update(s).digest("hex");
 }
 
-function shardPath(root: string, hash: string, ext: string) {
+function shardPath(root, hash, ext) {
   const a = hash.slice(0, 2) || "00";
   const b = hash.slice(2, 4) || "00";
   return path.join(root, a, b, `${hash}.${ext}`);
 }
 
-async function ensureDir(dir: string) {
+async function ensureDir(dir) {
   try {
     await fs.mkdir(dir, { recursive: true });
   } catch (error) {
@@ -67,7 +67,7 @@ async function ensureDir(dir: string) {
   }
 }
 
-async function readFreshFileIfAny(p: string) {
+async function readFreshFileIfAny(p) {
   try {
     const st = await fs.stat(p);
     const age = Date.now() - st.mtimeMs;
@@ -80,7 +80,7 @@ async function readFreshFileIfAny(p: string) {
   return null;
 }
 
-async function writeCacheFile(filePath: string, data: Buffer) {
+async function writeCacheFile(filePath, data) {
   try {
     await ensureDir(path.dirname(filePath));
     await fs.writeFile(filePath, data);
@@ -91,7 +91,7 @@ async function writeCacheFile(filePath: string, data: Buffer) {
 }
 
 /* ------------------ PLAN VALIDATION ------------------ */
-function validateUserPlan(plan: any): 'free' | 'pro' {
+function validateUserPlan(plan) {
   if (typeof plan === 'string' && (plan === 'free' || plan === 'pro')) {
     return plan;
   }
@@ -99,13 +99,13 @@ function validateUserPlan(plan: any): 'free' | 'pro' {
   return 'free';
 }
 
-function getModelForPlan(plan: 'free' | 'pro'): string {
+function getModelForPlan(plan) {
   return plan === 'pro' ? 'tts-1-hd' : DEFAULT_MODEL;
 }
 
 /* ------------------ VALIDATION ------------------ */
-function validateTTSRequest(payload: any) {
-  const errors: string[] = [];
+function validateTTSRequest(payload) {
+  const errors = [];
   
   if (!payload || typeof payload !== 'object') {
     errors.push('Request body must be a JSON object');
@@ -131,11 +131,11 @@ function validateTTSRequest(payload: any) {
     errors.push('Format must be one of: mp3, wav, ogg');
   }
   
-  return { errors, text, voice, format: format as 'mp3' | 'wav' | 'ogg' };
+  return { errors, text, voice, format };
 }
 
 /* ------------------ HANDLER ------------------ */
-export async function POST(req: NextRequest) {
+export async function POST(req) {
   try {
     // Environment check
     if (!OPENAI_API_KEY) {
@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Parse and validate request
-    let payload: any;
+    let payload;
     try {
       payload = await req.json();
     } catch {
@@ -204,7 +204,7 @@ export async function POST(req: NextRequest) {
     const startTime = Date.now();
     const response = await openai.audio.speech.create({
       model,              // "tts-1" for free, "tts-1-hd" for pro
-      voice: voice as any, // TypeScript voice type assertion
+      voice: voice,
       input: text,
       response_format: format,
     });
@@ -235,7 +235,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-  } catch (error: any) {
+  } catch (error) {
     // Enhanced error logging for production debugging
     console.error('TTS generation failed:', {
       error: error.message,

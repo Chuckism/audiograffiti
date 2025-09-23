@@ -7,9 +7,7 @@ import { SignInButton, SignUpButton, UserButton, useAuth, useUser } from "@clerk
 const FORMATS = {
   '9:16': { width: 1080, height: 1920, name: 'Vertical (9:16)' },
   '1:1':  { width: 1080, height: 1080,  name: 'Square (1:1)' },
-} as const;
-
-type FormatKey = keyof typeof FORMATS;
+};
 
 const FPS = 30;
 const MAX_LINES = 3;
@@ -21,9 +19,9 @@ const VOICE_STORAGE_KEY = 'ag:lastVoice';
 const PLAN_LIMITS = {
   free: { maxChars: 1000, displayName: 'Free' },
   pro: { maxChars: 2500, displayName: 'Pro' }
-} as const;
+};
 
-const PRESETS: Array<[string, string]> = [
+const PRESETS = [
   ['#0d1117', '#1f2937'],
   ['#111827', '#2563eb'],
   ['#1f2937', '#10b981'],
@@ -35,28 +33,14 @@ const PRESETS: Array<[string, string]> = [
   ['#0f172a', '#14b8a6'],
 ];
 
-// Type declarations
-declare global {
-  interface Navigator {
-    wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinel> };
-  }
-  interface WakeLockSentinel {
-    release: () => Promise<void>;
-    addEventListener: (type: string, listener: () => void) => void;
-  }
-}
-
 /* ============================== UTILS ============================== */
 
-function splitWords(s: string) {
+function splitWords(s) {
   return s.trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
 }
 
-function coalesceSegments(
-  segments: Array<{ start: number; end: number; text: string }>,
-  minDur = 0.4
-) {
-  const out: typeof segments = [];
+function coalesceSegments(segments, minDur = 0.4) {
+  const out = [];
   for (const seg of segments) {
     const last = out[out.length - 1];
     const dur = seg.end - seg.start;
@@ -71,18 +55,15 @@ function coalesceSegments(
 }
 
 /** Split long segments into smaller ones based on word count */
-function tightenSegments(
-  segs: Array<{ start: number; end: number; text: string }>,
-  maxWords = MAX_WORDS_PER_SEGMENT
-) {
-  const out: Array<{ start: number; end: number; text: string }> = [];
+function tightenSegments(segs, maxWords = MAX_WORDS_PER_SEGMENT) {
+  const out = [];
   for (const s of segs) {
     const words = splitWords(s.text);
     if (words.length <= maxWords) {
       out.push(s);
       continue;
     }
-    const chunks: string[] = [];
+    const chunks = [];
     for (let i = 0; i < words.length; i += maxWords) {
       chunks.push(words.slice(i, i + maxWords).join(' '));
     }
@@ -99,10 +80,7 @@ function tightenSegments(
 }
 
 /** Reflow original script across Whisper's segment timings */
-function reflowTextOntoTimings(
-  segs: Array<{ start: number; end: number; text: string }>,
-  originalText: string
-) {
+function reflowTextOntoTimings(segs, originalText) {
   const words = originalText.trim().split(/\s+/).filter(Boolean);
   if (!segs.length || !words.length) return segs;
 
@@ -132,7 +110,7 @@ function reflowTextOntoTimings(
     }
   }
 
-  const out: Array<{ start: number; end: number; text: string }> = [];
+  const out = [];
   let cursor = 0;
   for (let i = 0; i < segs.length; i++) {
     const n = Math.max(0, Math.min(words.length - cursor, counts[i] || 0));
@@ -149,10 +127,7 @@ function reflowTextOntoTimings(
 }
 
 /** Normalize for export stability */
-function normalizeSegments(
-  segs: Array<{ start: number; end: number; text: string }>,
-  totalDurGuess?: number
-) {
+function normalizeSegments(segs, totalDurGuess) {
   let out = tightenSegments(coalesceSegments(segs));
   out = out
     .map((s) => ({
@@ -170,20 +145,16 @@ function normalizeSegments(
 
   const last = out[out.length - 1];
   const total =
-    Number.isFinite(totalDurGuess!) && totalDurGuess! > 0
-      ? totalDurGuess!
+    Number.isFinite(totalDurGuess) && totalDurGuess > 0
+      ? totalDurGuess
       : last?.end ?? 0;
   if (last && total > 0) last.end = Math.max(last.end, total);
   return out;
 }
 
-function wrapCaption(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number
-) {
+function wrapCaption(ctx, text, maxWidth) {
   const words = (text || '').split(' ').filter(Boolean);
-  const lines: string[] = [];
+  const lines = [];
   let cur = '';
   for (const w of words) {
     const test = cur ? cur + ' ' + w : w;
@@ -198,14 +169,7 @@ function wrapCaption(
   return lines;
 }
 
-function roundedRectPath(
-  g: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number
-) {
+function roundedRectPath(g, x, y, w, h, r) {
   const rr = Math.min(r, w / 2, h / 2);
   g.beginPath();
   g.moveTo(x + rr, y);
@@ -215,20 +179,14 @@ function roundedRectPath(
   g.arcTo(x, y, x + rr, y, rr);
   g.closePath();
 }
-function roundedRectFill(
-  g: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number
-) {
+
+function roundedRectFill(g, x, y, w, h, r) {
   roundedRectPath(g, x, y, w, h, r);
   g.fill();
 }
 
 /** Pick a MediaRecorder MIME that the browser supports */
-function pickRecorderMime(): string | undefined {
+function pickRecorderMime() {
   const cands = [
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
@@ -236,14 +194,13 @@ function pickRecorderMime(): string | undefined {
   ];
   for (const t of cands) {
     try {
-      // @ts-ignore
       if (window.MediaRecorder?.isTypeSupported?.(t)) return t;
     } catch {}
   }
 }
 
 /* ---------- gradient helpers ---------- */
-function hexToRgb(hex: string) {
+function hexToRgb(hex) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   if (!m) return { r: 0, g: 0, b: 0 };
   return {
@@ -252,7 +209,8 @@ function hexToRgb(hex: string) {
     b: parseInt(m[3], 16),
   };
 }
-function mixHex(a: string, b: string, t: number) {
+
+function mixHex(a, b, t) {
   const A = hexToRgb(a),
     B = hexToRgb(b);
   const r = Math.round(A.r + (B.r - A.r) * t);
@@ -260,11 +218,8 @@ function mixHex(a: string, b: string, t: number) {
   const bl = Math.round(A.b + (B.b - A.b) * t);
   return `rgb(${r},${g},${bl})`;
 }
-function gradientAtTime(
-  t: number,
-  dur: number,
-  startIdx: number
-): [string, string] {
+
+function gradientAtTime(t, dur, startIdx) {
   if (!dur || !isFinite(dur)) return PRESETS[startIdx];
   const total = PRESETS.length;
   const progress = Math.min(Math.max(t / dur, 0), 1) * total;
@@ -277,22 +232,12 @@ function gradientAtTime(
 }
 
 /* ---------- image helpers ---------- */
-function drawImageCoverRounded(
-  ctx: CanvasRenderingContext2D,
-  img: CanvasImageSource,
-  dx: number,
-  dy: number,
-  dW: number,
-  dH: number,
-  radius = 28,
-  opacity = 1
-) {
+function drawImageCoverRounded(ctx, img, dx, dy, dW, dH, radius = 28, opacity = 1) {
   ctx.save();
   roundedRectPath(ctx, dx, dy, dW, dH, radius);
   ctx.clip();
-  // @ts-ignore
-  const iW = (img as any).width,
-    iH = (img as any).height;
+  const iW = img.width,
+    iH = img.height;
   if (!iW || !iH) {
     ctx.restore();
     return;
@@ -303,23 +248,17 @@ function drawImageCoverRounded(
   const x = dx + (dW - rW) / 2;
   const y = dy + (dH - rH) / 2;
   ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
-  ctx.drawImage(img as any, x, y, rW, rH);
+  ctx.drawImage(img, x, y, rW, rH);
   ctx.restore();
 }
 
 /* ---------- TTS segmenting fallback ---------- */
-function buildSegmentsFromTextAndDuration(
-  text: string,
-  durationSec: number,
-  targetSegSec = 2.2,
-  _minWords = 10,
-  maxWords = MAX_WORDS_PER_SEGMENT
-) {
+function buildSegmentsFromTextAndDuration(text, durationSec, targetSegSec = 2.2, _minWords = 10, maxWords = MAX_WORDS_PER_SEGMENT) {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (!words.length)
     return [{ start: 0, end: Math.max(1, durationSec), text: '' }];
   const FIXED_WORDS_PER_SEGMENT = 6; // steady visual rhythm
-  const chunks: string[] = [];
+  const chunks = [];
   for (let i = 0; i < words.length; i += FIXED_WORDS_PER_SEGMENT) {
     chunks.push(words.slice(i, i + FIXED_WORDS_PER_SEGMENT).join(' '));
   }
@@ -332,11 +271,7 @@ function buildSegmentsFromTextAndDuration(
 }
 
 /* ---------- slideshow helper ---------- */
-function slideForTime(
-  t: number,
-  totalDuration: number,
-  slides: { img: CanvasImageSource }[]
-) {
+function slideForTime(t, totalDuration, slides) {
   if (!slides.length) return null;
   if (!isFinite(totalDuration) || totalDuration <= 0) {
     return slides[0].img;
@@ -348,13 +283,7 @@ function slideForTime(
 
 /* ---------- gap-aware + perceptual padding caption indexer ---------- */
 const EPS = 1e-3; // ~1ms tolerance
-function segmentIndexAtTime(
-  segs: Array<{ start: number; end: number }>,
-  t: number,
-  holdGapSec = 0.05,
-  leadInSec = 0.03,
-  tailOutSec = 0.06
-) {
+function segmentIndexAtTime(segs, t, holdGapSec = 0.05, leadInSec = 0.03, tailOutSec = 0.06) {
   if (!segs.length) return -1;
   if (!Number.isFinite(t) || t < 0) t = 0;
 
@@ -379,7 +308,7 @@ function segmentIndexAtTime(
 }
 
 /* ====================== USER PLAN DETECTION ====================== */
-function getUserPlan(user: any): 'free' | 'pro' {
+function getUserPlan(user) {
   // Production: Check Clerk user metadata for subscription status
   // This will be integrated with Stripe after initial testing
   const plan = user?.publicMetadata?.subscriptionPlan;
@@ -398,7 +327,7 @@ export default function Page() {
   }, [user]);
 
   /* Format state */
-  const [selectedFormat, setSelectedFormat] = useState<FormatKey>('1:1');
+  const [selectedFormat, setSelectedFormat] = useState('1:1');
 
   /* Dynamic dimensions */
   const FORMAT = FORMATS[selectedFormat];
@@ -412,17 +341,15 @@ export default function Page() {
   const CAP_BOX_H = CAP_BOTTOM - CAP_TOP;
 
   /* Audio + recording */
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef(null);
   const [audioUrl, setAudioUrl] = useState('');
   const [isRecording, setIsRecording] = useState(false);
-  const mediaRecRef = useRef<MediaRecorder | null>(null);
-  const recChunksRef = useRef<BlobPart[]>([]);
+  const mediaRecRef = useRef(null);
+  const recChunksRef = useRef([]);
 
   /* Transcript + segments */
   const [transcript, setTranscript] = useState('');
-  const [segments, setSegments] = useState<
-    Array<{ start: number; end: number; text: string }>
-  >([]);
+  const [segments, setSegments] = useState([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [isTranscribing, setIsTranscribing] = useState(false);
 
@@ -432,18 +359,16 @@ export default function Page() {
 
   /* Export status */
   const [isExporting, setIsExporting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [phase, setPhase] = useState<'idle' | 'render' | 'encode' | 'save'>(
-    'idle'
-  );
+  const [err, setErr] = useState(null);
+  const [phase, setPhase] = useState('idle');
   const [renderPct, setRenderPct] = useState(0);
 
   /* Export capability detection */
-  const [exportSupported, setExportSupported] = useState<boolean | null>(null);
-  const [exportReason, setExportReason] = useState<string>('');
+  const [exportSupported, setExportSupported] = useState(null);
+  const [exportReason, setExportReason] = useState('');
 
   /* TTS */
-  const [voices] = useState<string[]>([
+  const [voices] = useState([
     'alloy',
     'echo',
     'nova',
@@ -455,37 +380,28 @@ export default function Page() {
     'coral',
   ]);
   const [ttsText, setTtsText] = useState('');
-  const [ttsVoice, setTtsVoice] = useState<string>(DEFAULT_VOICE);
+  const [ttsVoice, setTtsVoice] = useState(DEFAULT_VOICE);
   const [isTtsBusy, setIsTtsBusy] = useState(false);
 
   /* Artwork (up to 3 images) */
-  const [artworks, setArtworks] = useState<
-    { url: string; img: CanvasImageSource }[]
-  >([]);
-  const [artOpacity, setArtOpacity] = useState<number>(1);
+  const [artworks, setArtworks] = useState([]);
+  const [artOpacity, setArtOpacity] = useState(1);
 
   /* Custom branding text for Pro users */
   const [customBrandingText, setCustomBrandingText] = useState('');
 
   /* Wake lock */
-  const [wakeLock, setWakeLock] = useState<WakeLockSentinel | null>(null);
+  const [wakeLock, setWakeLock] = useState(null);
 
   /* -------- Uniform caption metrics -------- */
-  const capMetricsMemoRef = useRef<{ size: number; lineHeight: number } | null>(
-    null
-  );
-  function computeUniformCaptionMetrics(
-    ctx: CanvasRenderingContext2D,
-    segs: Array<{ text: string }>,
-    fallbackText: string
-  ) {
+  const capMetricsMemoRef = useRef(null);
+  function computeUniformCaptionMetrics(ctx, segs, fallbackText) {
     const maxWidth = WIDTH * 0.94;
-    const texts: string[] =
-      segs?.map((s) => (s.text || '').trim()).filter(Boolean) ?? [];
+    const texts = segs?.map((s) => (s.text || '').trim()).filter(Boolean) ?? [];
     if (!texts.length)
       texts.push((fallbackText || '').trim() || 'Record or upload a short');
 
-    const sizeFor = (text: string) => {
+    const sizeFor = (text) => {
       let lo = 56,
         hi = 220,
         best = 56;
@@ -529,7 +445,7 @@ export default function Page() {
       };
       rec.start();
       setIsRecording(true);
-    } catch (e: any) {
+    } catch (e) {
       setErr(e?.message || 'Mic permission problem.');
     }
   };
@@ -545,15 +461,15 @@ export default function Page() {
   };
 
   /* ============================ UPLOADS ============================ */
-  const onUploadAudio = async (f: File | null) => {
+  const onUploadAudio = async (f) => {
     if (!f) return;
     setErr(null);
     const url = URL.createObjectURL(f);
     setAudioUrl(url);
   };
 
-  async function fileToCanvasImageSource(f: File): Promise<CanvasImageSource> {
-    const bmp = await (window as any).createImageBitmap?.(f).catch(() => null);
+  async function fileToCanvasImageSource(f) {
+    const bmp = await window.createImageBitmap?.(f).catch(() => null);
     if (bmp) return bmp;
     const img = new Image();
     img.src = URL.createObjectURL(f);
@@ -561,7 +477,7 @@ export default function Page() {
     return img;
   }
 
-  const onUploadArtwork = async (files: FileList | null) => {
+  const onUploadArtwork = async (files) => {
     if (!files || !files.length) return;
     setErr(null);
 
@@ -569,7 +485,7 @@ export default function Page() {
     let arr = Array.from(files).slice(0, 3);
 
     // If all files start with a number prefix, sort by that number.
-    const leadingNum = (name: string) => {
+    const leadingNum = (name) => {
       const m = name.trim().match(/^(\d{1,4})[\s._-]?/);
       return m ? parseInt(m[1], 10) : NaN;
     };
@@ -578,7 +494,7 @@ export default function Page() {
       arr = arr.sort((a, b) => leadingNum(a.name) - leadingNum(b.name));
     }
 
-    const items: { url: string; img: CanvasImageSource }[] = [];
+    const items = [];
     for (const f of arr) {
       try {
         const img = await fileToCanvasImageSource(f);
@@ -610,7 +526,7 @@ export default function Page() {
       );
       const r = await fetch('/api/transcribe', { method: 'POST', body: fd });
       if (!r.ok) {
-        let msg: string;
+        let msg;
         try {
           const j = await r.json();
           msg = j?.error || JSON.stringify(j);
@@ -623,10 +539,7 @@ export default function Page() {
       const text = (data?.text || '').trim();
       setTranscript(text);
 
-      let segs:
-        | Array<{ start: number; end: number; text: string }>
-        | undefined =
-        (data?.segments as any[])?.map((s: any) => ({
+      let segs = data?.segments?.map((s) => ({
           start: s.start,
           end: s.end,
           text: (s.text || '').trim(),
@@ -636,7 +549,7 @@ export default function Page() {
       setSegments(normalizeSegments(segs, durGuess));
       setCurrentIdx(0);
       capMetricsMemoRef.current = null;
-    } catch (e: any) {
+    } catch (e) {
       setErr(e?.message || 'Transcription failed.');
     } finally {
       setIsTranscribing(false);
@@ -670,7 +583,7 @@ export default function Page() {
         }),
       });
       if (!tt.ok) {
-        let msg: string;
+        let msg;
         try {
           const j = await tt.json();
           msg = j?.error || JSON.stringify(j);
@@ -690,7 +603,7 @@ export default function Page() {
         const probe = new Audio();
         probe.src = url;
         probe.preload = 'auto';
-        await new Promise<void>((res, rej) => {
+        await new Promise((res, rej) => {
           probe.addEventListener('loadedmetadata', () => res(), { once: true });
           probe.addEventListener('error', () => rej(new Error('probe failed')), { once: true });
           probe.load();
@@ -711,7 +624,7 @@ export default function Page() {
       });
       
       if (!transcribeResponse.ok) {
-        let msg: string;
+        let msg;
         try {
           const j = await transcribeResponse.json();
           msg = j?.error || JSON.stringify(j);
@@ -724,8 +637,7 @@ export default function Page() {
       const transcribeData = await transcribeResponse.json();
 
       // Step 3: Use precise Whisper segments, but reflow the original text for accuracy
-      let whisperSegs: Array<{ start: number; end: number; text: string }> = 
-        (transcribeData?.segments as any[])?.map((s: any) => ({
+      let whisperSegs = transcribeData?.segments?.map((s) => ({
           start: s.start,
           end: s.end,
           text: (s.text || '').trim(),
@@ -744,7 +656,7 @@ export default function Page() {
       setSegments(finalSegs);
       setCurrentIdx(0);
       capMetricsMemoRef.current = null;
-    } catch (e: any) {
+    } catch (e) {
       setErr(e?.message || 'TTS failed.');
     } finally {
       setIsTtsBusy(false);
@@ -795,7 +707,7 @@ export default function Page() {
     const requestWakeLock = async () => {
       if ('wakeLock' in navigator) {
         try {
-          const lock = await navigator.wakeLock!.request('screen');
+          const lock = await navigator.wakeLock.request('screen');
           setWakeLock(lock);
           lock.addEventListener('release', () => setWakeLock(null));
         } catch (e) {
@@ -846,18 +758,18 @@ export default function Page() {
   }, [audioUrl]);
 
   /* ===================== EXPORT SUPPORT DETECTOR ===================== */
-  function detectExportSupport(): { ok: boolean; reason?: string } {
+  function detectExportSupport() {
     const hasCanvasCapture =
       typeof HTMLCanvasElement !== 'undefined' &&
-      typeof (HTMLCanvasElement.prototype as any).captureStream === 'function';
+      typeof HTMLCanvasElement.prototype.captureStream === 'function';
     const hasMR = typeof window !== 'undefined' && 'MediaRecorder' in window;
 
     if (!hasCanvasCapture || !hasMR) {
       return { ok: false, reason: 'Missing canvas.captureStream or MediaRecorder.' };
     }
 
-    const isTypeSupported = (window as any).MediaRecorder?.isTypeSupported?.bind(
-      (window as any).MediaRecorder
+    const isTypeSupported = window.MediaRecorder?.isTypeSupported?.bind(
+      window.MediaRecorder
     );
     const candidates = [
       'video/webm;codecs=vp9,opus',
@@ -885,18 +797,7 @@ export default function Page() {
   }, []);
 
   /* ============================ DRAW FRAME ============================ */
-  function drawFrame(
-    ctx: CanvasRenderingContext2D,
-    t: number,
-    grad: [string, string],
-    segs: Array<{ start: number; end: number; text: string }>,
-    transcriptText: string,
-    bars: number[] | undefined,
-    art: CanvasImageSource | null,
-    artOp: number,
-    plan: 'free' | 'pro',
-    customText: string
-  ) {
+  function drawFrame(ctx, t, grad, segs, transcriptText, bars, art, artOp, plan, customText) {
     // Background gradient
     const g = ctx.createLinearGradient(0, 0, 0, HEIGHT);
     g.addColorStop(0, grad[0]);
@@ -952,7 +853,7 @@ export default function Page() {
           transcriptText
         );
       }
-      const { size: CAP_SIZE, lineHeight: CAP_LH } = capMetricsMemoRef.current!;
+      const { size: CAP_SIZE, lineHeight: CAP_LH } = capMetricsMemoRef.current;
 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1058,12 +959,12 @@ export default function Page() {
   }
 
   /* ======================= RENDER → WEBM (export) ======================= */
-  async function renderWebMBlob(onProgress?: (p: number) => void): Promise<Blob> {
+  async function renderWebMBlob(onProgress) {
     if (!audioUrl) throw new Error('No audio.');
     const a = new Audio(audioUrl);
     a.crossOrigin = 'anonymous';
     a.preload = 'auto';
-    await new Promise<void>((res) => {
+    await new Promise((res) => {
       a.addEventListener('canplay', () => res(), { once: true });
       a.load();
     });
@@ -1076,10 +977,9 @@ export default function Page() {
     const off = document.createElement('canvas');
     off.width = WIDTH;
     off.height = HEIGHT;
-    const ctx = off.getContext('2d')!;
+    const ctx = off.getContext('2d');
 
-    const AC: any =
-      (window as any).AudioContext || (window as any).webkitAudioContext;
+    const AC = window.AudioContext || window.webkitAudioContext;
     const ac = new AC();
     const src = ac.createMediaElementSource(a);
     const analyser = ac.createAnalyser();
@@ -1090,7 +990,7 @@ export default function Page() {
     analyser.connect(dest);
     // Do NOT connect to ac.destination here to avoid double audio during export
 
-    const videoStream = (off as HTMLCanvasElement).captureStream(FPS);
+    const videoStream = off.captureStream(FPS);
     const mixed = new MediaStream([
       ...videoStream.getVideoTracks(),
       ...dest.stream.getAudioTracks(),
@@ -1099,9 +999,9 @@ export default function Page() {
     const rec = mime
       ? new MediaRecorder(mixed, { mimeType: mime })
       : new MediaRecorder(mixed);
-    const chunks: BlobPart[] = [];
+    const chunks = [];
     rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-    const done = new Promise<Blob>((resolve) => {
+    const done = new Promise((resolve) => {
       rec.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
     });
 
@@ -1152,15 +1052,15 @@ export default function Page() {
     await a.play();
 
     // rAF-driven export drawing with hidden-tab fallback
-    let raf = 0 as number;
-    let fallbackInterval: any = null;
+    let raf = 0;
+    let fallbackInterval = null;
 
     const tick = () => {
       const currentTime = a.currentTime || 0;
 
       const b = computeBars();
       const grad = autoBg
-        ? (gradientAtTime(currentTime, totalDuration, presetIdx) as [string, string])
+        ? gradientAtTime(currentTime, totalDuration, presetIdx)
         : PRESETS[presetIdx];
 
       const slide = slideForTime(
@@ -1211,14 +1111,14 @@ export default function Page() {
 
   /* ============================ MP4 EXPORT ============================ */
   const exportMP4 = async () => {
-    let exportLock: WakeLockSentinel | null = null;
+    let exportLock = null;
     try {
       if (exportSupported === false) {
         setErr('Export is not supported in this browser. Try desktop Chrome/Edge/Firefox.');
         return;
       }
 
-      try { exportLock = await (navigator as any).wakeLock?.request?.('screen'); } catch {}
+      try { exportLock = await navigator?.wakeLock?.request?.('screen'); } catch {}
 
       setErr(null);
       setIsExporting(true);
@@ -1231,7 +1131,7 @@ export default function Page() {
       const r = await fetch('/api/convert-mp4', { method: 'POST', body: fd });
       const ct = r.headers.get('content-type') || '';
       if (!r.ok) {
-        let payload: any = null;
+        let payload = null;
         try {
           payload = ct.includes('application/json')
             ? await r.json()
@@ -1256,7 +1156,7 @@ export default function Page() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch (e: any) {
+    } catch (e) {
       setErr(e?.message || 'MP4 export failed');
     } finally {
       try { await exportLock?.release(); } catch {}
@@ -1335,7 +1235,7 @@ export default function Page() {
             {Object.entries(FORMATS).map(([key, format]) => (
               <button
                 key={key}
-                onClick={() => setSelectedFormat(key as FormatKey)}
+                onClick={() => setSelectedFormat(key)}
                 className={`px-3 py-2 rounded-lg text-sm border transition-colors ${
                   selectedFormat === key
                     ? 'bg-yellow-500/90 text-black border-yellow-300 font-medium'

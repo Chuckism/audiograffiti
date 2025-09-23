@@ -1,4 +1,4 @@
-// app/api/convert-mp4/route.ts
+// app/api/convert-mp4/route.js
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { promises as fs } from "fs";
@@ -15,7 +15,7 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB max file size
 const CLEANUP_DELAY = 5000; // 5 seconds before cleanup
 
 /* ------------------ UTILS ------------------ */
-function generateTempId(): string {
+function generateTempId() {
   return createHash('md5').update(Date.now() + Math.random().toString()).digest('hex').slice(0, 12);
 }
 
@@ -27,7 +27,7 @@ async function ensureTempDir() {
   }
 }
 
-async function cleanupFile(filePath: string) {
+async function cleanupFile(filePath) {
   try {
     await fs.unlink(filePath);
   } catch (error) {
@@ -35,7 +35,7 @@ async function cleanupFile(filePath: string) {
   }
 }
 
-function findFFmpegPath(): string {
+function findFFmpegPath() {
   // Common FFmpeg locations in different environments
   const possiblePaths = [
     '/usr/bin/ffmpeg',           // Standard Linux
@@ -52,12 +52,7 @@ function findFFmpegPath(): string {
   return possiblePaths[0]; // Default to standard location
 }
 
-async function convertWebMToMP4(inputPath: string, outputPath: string): Promise<{
-  success: boolean;
-  ffmpegPath?: string;
-  stderr?: string;
-  stdout?: string;
-}> {
+async function convertWebMToMP4(inputPath, outputPath) {
   const ffmpegPath = findFFmpegPath();
   
   return new Promise((resolve) => {
@@ -116,10 +111,10 @@ async function convertWebMToMP4(inputPath: string, outputPath: string): Promise<
 }
 
 /* ------------------ HANDLER ------------------ */
-export async function POST(req: NextRequest) {
+export async function POST(req) {
   const tempId = generateTempId();
-  let inputPath: string | null = null;
-  let outputPath: string | null = null;
+  let inputPath = null;
+  let outputPath = null;
 
   try {
     // Ensure temp directory exists
@@ -127,7 +122,7 @@ export async function POST(req: NextRequest) {
 
     // Parse multipart form data
     const formData = await req.formData();
-    const file = formData.get('file') as File;
+    const file = formData.get('file');
 
     if (!file) {
       return NextResponse.json(
@@ -210,7 +205,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Video conversion error:', {
       error: error.message,
       stack: error.stack,

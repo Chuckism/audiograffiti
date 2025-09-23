@@ -2,21 +2,19 @@
 
 import { useState, useRef, useEffect } from 'react'
 
-
-
 export default function AudioGraffiti() {
   const [appState, setAppState] = useState('recording')
   const [isRecording, setIsRecording] = useState(false)
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
-  const [selectedStyle, setSelectedStyle] = useState<string>('')
-  const [videoUrl, setVideoUrl] = useState<string>('')
-  const [transcript, setTranscript] = useState<string>('')
-  const [audioUrl, setAudioUrl] = useState<string>('')
+  const [audioBlob, setAudioBlob] = useState(null)
+  const [selectedStyle, setSelectedStyle] = useState('')
+  const [videoUrl, setVideoUrl] = useState('')
+  const [transcript, setTranscript] = useState('')
+  const [audioUrl, setAudioUrl] = useState('')
   
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const audioRef = useRef<HTMLAudioElement>(null)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
+  const canvasRef = useRef(null)
+  const audioRef = useRef(null)
 
   const startRecording = async () => {
     try {
@@ -53,12 +51,12 @@ export default function AudioGraffiti() {
     }
   }
 
-  const selectStyle = (style: string) => {
+  const selectStyle = (style) => {
     setSelectedStyle(style)
     generateVideo(style)
   }
 
-  const generateVideo = async (style: string) => {
+  const generateVideo = async (style) => {
     if (!audioBlob) return
     
     setAppState('generating')
@@ -91,7 +89,7 @@ export default function AudioGraffiti() {
     }
   }
 
-  const createAudioVisualization = async (style: string, transcript: string) => {
+  const createAudioVisualization = async (style, transcript) => {
     if (!canvasRef.current || !audioRef.current) return
     
     const canvas = canvasRef.current
@@ -105,7 +103,7 @@ export default function AudioGraffiti() {
     canvas.height = 1920
     
     // Create audio context for waveform analysis
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)()
     const analyser = audioContext.createAnalyser()
     const source = audioContext.createMediaElementSource(audio)
     
@@ -173,7 +171,7 @@ export default function AudioGraffiti() {
     audio.play()
   }
 
-  const getStyleConfig = (style: string) => {
+  const getStyleConfig = (style) => {
     switch (style.toLowerCase()) {
       case 'neon':
         return {
@@ -199,9 +197,9 @@ export default function AudioGraffiti() {
     }
   }
 
-  const wrapText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] => {
+  const wrapText = (ctx, text, maxWidth) => {
     const words = text.split(' ')
-    const lines: string[] = []
+    const lines = []
     let currentLine = ''
     
     for (const word of words) {

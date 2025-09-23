@@ -1,4 +1,4 @@
-// app/api/transcribe/route.ts
+// app/api/transcribe/route.js
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
@@ -33,7 +33,7 @@ const openai = new OpenAI({
 });
 
 /* ------------------ VALIDATION ------------------ */
-function validateAudioFile(file: File): { isValid: boolean; error?: string } {
+function validateAudioFile(file) {
   // Check file size
   if (file.size > MAX_FILE_SIZE) {
     return {
@@ -66,7 +66,7 @@ function validateAudioFile(file: File): { isValid: boolean; error?: string } {
   return { isValid: true };
 }
 
-function sanitizeFileName(fileName: string): string {
+function sanitizeFileName(fileName) {
   // Ensure we have a reasonable filename for OpenAI
   const cleaned = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
   const parts = cleaned.split('.');
@@ -77,7 +77,7 @@ function sanitizeFileName(fileName: string): string {
 }
 
 /* ------------------ HANDLER ------------------ */
-export async function POST(req: NextRequest) {
+export async function POST(req) {
   try {
     // Environment check
     if (!OPENAI_API_KEY) {
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Parse multipart form data
-    let formData: FormData;
+    let formData;
     try {
       formData = await req.formData();
     } catch (error) {
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const file = formData.get('file') as File;
+    const file = formData.get('file');
     if (!file) {
       return NextResponse.json(
         { error: "No audio file provided" },
@@ -147,11 +147,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Process segments for consistent format
-    const segments = (transcription.segments || []).map((seg: any) => ({
+    const segments = (transcription.segments || []).map((seg) => ({
       start: Number(seg.start) || 0,
       end: Number(seg.end) || 0,
       text: (seg.text || '').trim()
-    })).filter((seg: any) => seg.text.length > 0);
+    })).filter((seg) => seg.text.length > 0);
 
     const response = {
       text: transcription.text.trim(),
@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
       }
     });
 
-  } catch (error: any) {
+  } catch (error) {
     // Enhanced error logging
     console.error('Transcription failed:', {
       error: error.message,
