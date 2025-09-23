@@ -15,6 +15,8 @@ const MAX_WORDS_PER_SEGMENT = 18;
 const DEFAULT_VOICE = 'nova';
 const VOICE_STORAGE_KEY = 'ag:lastVoice';
 
+
+
 // Plan-based character limits
 const PLAN_LIMITS = {
   free: { maxChars: 1000, displayName: 'Free' },
@@ -309,10 +311,19 @@ function segmentIndexAtTime(segs, t, holdGapSec = 0.05, leadInSec = 0.03, tailOu
 
 /* ====================== USER PLAN DETECTION ====================== */
 function getUserPlan(user) {
-  // Production: Check Clerk user metadata for subscription status
-  // This will be integrated with Stripe after initial testing
-  const plan = user?.publicMetadata?.subscriptionPlan;
-  return plan === 'pro' ? 'pro' : 'free';
+  if (!user) return 'free';
+  
+  // Check Stripe subscription status from Clerk metadata
+  const subscriptionPlan = user?.publicMetadata?.subscriptionPlan;
+  const subscriptionStatus = user?.publicMetadata?.subscriptionStatus;
+  
+  // User has active Pro subscription via Stripe
+  if (subscriptionPlan === 'pro' && subscriptionStatus === 'active') {
+    return 'pro';
+  }
+  
+  // Default to free plan
+  return 'free';
 }
 
 /* =========================== COMPONENT ============================ */
@@ -389,7 +400,7 @@ export default function Page() {
 
   /* Custom branding text for Pro users */
   const [customBrandingText, setCustomBrandingText] = useState('');
-
+  const [isUpgrading, setIsUpgrading] = useState(false);
   /* Wake lock */
   const [wakeLock, setWakeLock] = useState(null);
 
@@ -427,6 +438,41 @@ export default function Page() {
     const lineHeight = Math.round(uniform * 1.14);
     return { size: uniform, lineHeight };
   }
+
+  /* ======================= STRIPE UPGRADE ======================= */
+  const handleUpgradeClick = async () => {
+    try {
+      setIsUpgrading(true);
+      
+      if (!user?.emailAddresses?.[0]?.emailAddress) {
+        setErr('Email address required for upgrade');
+        return;
+      }
+      
+      const email = user.emailAddresses[0].emailAddress;
+      
+      const response = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to create checkout session');
+      }
+      
+      const { url } = await response.json();
+      window.location.href = url;
+      
+    } catch (error) {
+      console.error('Upgrade error:', error);
+      setErr('Failed to start upgrade process. Please try again.');
+    } finally {
+      setIsUpgrading(false);
+    }
+  };
 
   /* ============================ RECORD ============================ */
   const startRecord = async () => {
@@ -1415,177 +1461,181 @@ export default function Page() {
             )}
           </div>
 
-          {/* Artwork preview and controls */}
-          {artworks.length > 0 && (
-            <div className="mb-3 p-3 rounded-lg bg-black/20 border border-white/10">
-              <div className="flex items-center gap-2 mb-2">
-                {artworks.map((a, i) => (
-                  <div
-                    key={a.url}
-                    className="relative h-10 w-10 rounded-md overflow-hidden border border-white/20"
-                    title={`Image ${i + 1}`}
-                  >
-                    <img
-                      src={a.url}
-                      alt={`Artwork ${i + 1}`}
-                      className="h-full w-full object-cover"
-                    />
-                    <span className="absolute -top-1 -left-1 text-[9px] px-1 py-0.5 rounded bg-black/80 border border-white/30 text-white">
-                      {i + 1}
-                    </span>
-                  </div>
-                ))}
-
-                <div className="ml-auto flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setArtworks((prev) => [...prev].reverse())}
-                    className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90"
-                  >
-                    Reverse
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setArtworks((prev) => (prev.length ? [...prev.slice(1), prev[0]] : prev))
-                    }
-                    className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90"
-                  >
-                    Rotate
-                  </button>
+         {/* Artwork preview and controls */}
+        {artworks.length > 0 && (
+          <div className="mb-3 p-3 rounded-lg bg-black/20 border border-white/10">
+            <div className="flex items-center gap-2 mb-2">
+              {artworks.map((a, i) => (
+                <div
+                  key={a.url}
+                  className="relative h-10 w-10 rounded-md overflow-hidden border border-white/20"
+                  title={`Image ${i + 1}`}
+                >
+                  <img
+                    src={a.url}
+                    alt={`Artwork ${i + 1}`}
+                    className="h-full w-full object-cover"
+                  />
+                  <span className="absolute -top-1 -left-1 text-[9px] px-1 py-0.5 rounded bg-black/80 border border-white/30 text-white">
+                    {i + 1}
+                  </span>
                 </div>
-              </div>
-              <div className="text-[10px] text-white/60">
-                Order: 1 → 2 → 3 during playback
-              </div>
-            </div>
-          )}
-        </div>
+              ))}
 
-        {/* Custom Branding Section */}
-        <div className="mb-4 rounded-lg border border-white/10 bg-black/20 p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-white/90">Custom Branding</span>
-            <span className={`px-2 py-1 rounded text-xs font-medium ${
-              userPlan === 'pro' 
-                ? 'bg-green-500/90 text-black' 
-                : 'bg-gray-500/90 text-white'
-            }`}>
-              {userPlan === 'pro' ? 'PRO' : 'FREE'}
-            </span>
-          </div>
-          <div className="text-xs text-white/70 mb-2">
-            {userPlan === 'free' 
-              ? 'Free videos include "Powered by AudioGraffiti.co" watermark. Upgrade to Pro for custom branding.' 
-              : 'Add your custom text to brand your videos (company name, website, tagline, etc.)'
-            }
-          </div>
-          {userPlan === 'pro' ? (
-            <div>
-              <input
-                type="text"
-                value={customBrandingText}
-                onChange={(e) => setCustomBrandingText(e.target.value)}
-                placeholder="Enter your branding text (e.g., YourCompany.com)"
-                className="w-full rounded-lg bg-white/10 border border-white/15 p-2 text-sm text-white placeholder-white/50"
-                maxLength={50}
-              />
-              <div className="mt-1 text-xs text-white/60">
-                {customBrandingText.length}/50 characters
+              <div className="ml-auto flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setArtworks((prev) => [...prev].reverse())}
+                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90"
+                >
+                  Reverse
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setArtworks((prev) => (prev.length ? [...prev.slice(1), prev[0]] : prev))
+                  }
+                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90"
+                >
+                  Rotate
+                </button>
               </div>
             </div>
-          ) : (
-            <div className="text-xs text-white/60">
-              Pro plan required for custom branding
+            <div className="text-[10px] text-white/60">
+              Order: 1 → 2 → 3 during playback
             </div>
-          )}
-        </div>
-
-        {/* Background swatches */}
-        <div className="mb-4">
-          <div className="flex gap-2 items-center">
-            {PRESETS.map((g, i) => (
-              <button
-                key={i}
-                onClick={() => setPresetIdx(i)}
-                className={`h-6 w-8 rounded-md border transition-all ${
-                  presetIdx === i ? 'border-white/80 scale-110' : 'border-white/20 hover:border-white/40'
-                }`}
-                style={{ background: `linear-gradient(180deg, ${g[0]}, ${g[1]})` }}
-              />
-            ))}
-            
-            <div className="flex items-center gap-2 ml-auto text-xs text-white/80">
-              <span>Auto BG</span>
-              <button
-                onClick={() => setAutoBg((v) => !v)}
-                className={`px-2 py-1 rounded transition-colors ${
-                  autoBg 
-                    ? 'bg-yellow-500/90 text-black font-medium' 
-                    : 'bg-white/15 hover:bg-white/25 text-white/90'
-                }`}
-              >
-                {autoBg ? 'On' : 'Off'}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Export Section */}
-        <div className="mb-4">
-          <button
-            onClick={exportMP4}
-            disabled={isExporting || exportSupported === false || !segments.length}
-            className="w-full px-4 py-3 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed border border-white/15"
-            title={
-              exportSupported === false 
-                ? 'Use desktop Chrome/Edge/Firefox for export' 
-                : !segments.length 
-                ? 'Transcribe audio first'
-                : undefined
-            }
-          >
-            Export MP4
-          </button>
-          
-          {isExporting && (
-            <div className="mt-2 text-xs text-white/70 text-center">
-              {phase === 'render'
-                ? `Rendering… ${renderPct}%`
-                : phase === 'encode'
-                ? 'Encoding…'
-                : phase === 'save'
-                ? 'Saving…'
-                : 'Working…'}
-            </div>
-          )}
-        </div>
-
-        {/* Audio Player */}
-        <div className="p-3 rounded-lg bg-black/20 border border-white/10">
-          <audio
-            ref={audioRef}
-            src={audioUrl || undefined}
-            controls
-            playsInline
-            preload="auto"
-            className="w-full mb-2"
-          />
-          <div className="flex justify-between text-xs text-white/60">
-            <div>Segments: {Math.max(1, segments.length)}</div>
-            <div>
-              Current: {segments.length ? `${Math.min(currentIdx + 1, segments.length)}/${segments.length}` : '—'}
-            </div>
-          </div>
-        </div>
-
-        {/* Error display */}
-        {err && (
-          <div className="mt-3 text-sm text-red-300 bg-red-900/30 rounded-lg p-3 border border-red-400/30 whitespace-pre-wrap">
-            {err}
           </div>
         )}
       </div>
+
+      {/* Custom Branding Section */}
+      <div className="mb-4 rounded-lg border border-white/10 bg-black/20 p-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-white/90">Custom Branding</span>
+          <span className={`px-2 py-1 rounded text-xs font-medium ${
+            userPlan === 'pro' 
+              ? 'bg-green-500/90 text-black' 
+              : 'bg-gray-500/90 text-white'
+          }`}>
+            {userPlan === 'pro' ? 'PRO' : 'FREE'}
+          </span>
+        </div>
+        <div className="text-xs text-white/70 mb-2">
+          {userPlan === 'free' 
+            ? 'Free videos include "Powered by AudioGraffiti.co" watermark. Upgrade to Pro for custom branding.' 
+            : 'Add your custom text to brand your videos (company name, website, tagline, etc.)'
+          }
+        </div>
+        {userPlan === 'pro' ? (
+          <div>
+            <input
+              type="text"
+              value={customBrandingText}
+              onChange={(e) => setCustomBrandingText(e.target.value)}
+              placeholder="Enter your branding text (e.g., YourCompany.com)"
+              className="w-full rounded-lg bg-white/10 border border-white/15 p-2 text-sm text-white placeholder-white/50"
+              maxLength={50}
+            />
+            <div className="mt-1 text-xs text-white/60">
+              {customBrandingText.length}/50 characters
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={handleUpgradeClick}
+            disabled={isUpgrading}
+            className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-black font-medium py-2 px-4 rounded-lg transition-all duration-200 text-sm"
+          >
+            {isUpgrading ? 'Loading...' : 'Upgrade to Pro - $19/month'}
+          </button>
+        )}
+      </div>
+
+      {/* Background swatches */}
+      <div className="mb-4">
+        <div className="flex gap-2 items-center">
+          {PRESETS.map((g, i) => (
+            <button
+              key={i}
+              onClick={() => setPresetIdx(i)}
+              className={`h-6 w-8 rounded-md border transition-all ${
+                presetIdx === i ? 'border-white/80 scale-110' : 'border-white/20 hover:border-white/40'
+              }`}
+              style={{ background: `linear-gradient(180deg, ${g[0]}, ${g[1]})` }}
+            />
+          ))}
+          
+          <div className="flex items-center gap-2 ml-auto text-xs text-white/80">
+            <span>Auto BG</span>
+            <button
+              onClick={() => setAutoBg((v) => !v)}
+              className={`px-2 py-1 rounded transition-colors ${
+                autoBg 
+                  ? 'bg-yellow-500/90 text-black font-medium' 
+                  : 'bg-white/15 hover:bg-white/25 text-white/90'
+              }`}
+            >
+              {autoBg ? 'On' : 'Off'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Export Section */}
+      <div className="mb-4">
+        <button
+          onClick={exportMP4}
+          disabled={isExporting || exportSupported === false || !segments.length}
+          className="w-full px-4 py-3 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed border border-white/15"
+          title={
+            exportSupported === false 
+              ? 'Use desktop Chrome/Edge/Firefox for export' 
+              : !segments.length 
+              ? 'Transcribe audio first'
+              : undefined
+          }
+        >
+          Export MP4
+        </button>
+        
+        {isExporting && (
+          <div className="mt-2 text-xs text-white/70 text-center">
+            {phase === 'render'
+              ? `Rendering… ${renderPct}%`
+              : phase === 'encode'
+              ? 'Encoding…'
+              : phase === 'save'
+              ? 'Saving…'
+              : 'Working…'}
+          </div>
+        )}
+      </div>
+
+      {/* Audio Player */}
+      <div className="p-3 rounded-lg bg-black/20 border border-white/10">
+        <audio
+          ref={audioRef}
+          src={audioUrl || undefined}
+          controls
+          playsInline
+          preload="auto"
+          className="w-full mb-2"
+        />
+        <div className="flex justify-between text-xs text-white/60">
+          <div>Segments: {Math.max(1, segments.length)}</div>
+          <div>
+            Current: {segments.length ? `${Math.min(currentIdx + 1, segments.length)}/${segments.length}` : '—'}
+          </div>
+        </div>
+      </div>
+
+      {/* Error display */}
+      {err && (
+        <div className="mt-3 text-sm text-red-300 bg-red-900/30 rounded-lg p-3 border border-red-400/30 whitespace-pre-wrap">
+          {err}
+        </div>
+      )}
     </div>
-  );
+  </div>
+);
 }
