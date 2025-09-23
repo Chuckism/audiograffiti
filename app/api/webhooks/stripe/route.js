@@ -98,7 +98,7 @@ async function handleCheckoutCompleted(session) {
   try {
     console.log(`Processing checkout completion for user: ${userId}`);
     
-    // Update user metadata in Clerk to mark as Pro subscriber
+    // Update user metadata in Clerk to mark as Pro subscriber adjusted
     await clerkClient.users.updateUserMetadata(userId, {
       publicMetadata: {
         subscriptionPlan: 'pro',
