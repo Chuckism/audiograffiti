@@ -19,7 +19,7 @@ const VOICE_STORAGE_KEY = 'ag:lastVoice';
 
 // Plan-based character limits
 const PLAN_LIMITS = {
-  free: { maxChars: 1000, displayName: 'Free' },
+  free: { maxChars: 1500, displayName: 'Free' },
   pro: { maxChars: 2500, displayName: 'Pro' }
 };
 
@@ -933,7 +933,7 @@ export default function Page() {
       roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
       
       // Calculate font size that fits the available width
-      const watermarkText = 'Powered by AudioGraffiti.co - Upgrade to customize this message';
+      const watermarkText = 'Start creating free audiograms at AudioGraffiti.co';
       let fontSize = Math.round(wmHeight * 0.32);
       ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       
@@ -1508,7 +1508,7 @@ export default function Page() {
         )}
       </div>
 
-      {/* Custom Branding Section */}
+      {/* Custom Branding Section TEMPORARILY DISABLED FOR FREE-TIER LAUNCH - RESTORE AFTER CRUISE
       <div className="mb-4 rounded-lg border border-white/10 bg-black/20 p-3">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-white/90">Custom Branding</span>
@@ -1549,7 +1549,7 @@ export default function Page() {
             {isUpgrading ? 'Loading...' : 'Upgrade to Pro - $19/month'}
           </button>
         )}
-      </div>
+      </div>*/}
 
       {/* Background swatches */}
       <div className="mb-4">
