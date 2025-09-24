@@ -916,53 +916,35 @@ export default function Page() {
     }
   }
 
-  // --- CORRECTED WATERMARK SECTION ---
-  // Only the simple, fast watermark for the free plan is included.
-  // The broken, duplicated code has been removed.
+  // --- FINAL CORRECTED WATERMARK ---
+  // This version completely removes the slow 'while' loop.
   if (plan === 'free') {
     ctx.save();
-    
+  
     // Watermark dimensions - fixed proportions to avoid computation loops
     const wmHeight = Math.round(HEIGHT * 0.06);
     const wmWidth = Math.round(WIDTH * 0.6); // Fixed reasonable width
-    
+  
     // Position in upper right with safe margins
     const wmX = WIDTH - wmWidth - 10;
     const wmY = HEIGHT * 0.05;
-    
+  
     // Semi-transparent background for readability
     ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
-    
-    // Use simple, short text that fits reliably without measurement loops
-    const watermarkText = 'Start creating free audiograms at AudioGraffiti.co';
-    let fontSize = Math.round(wmHeight * 0.32);
+  
+    // Use simple text that fits reliably without measurement loops
+    const watermarkText = 'AudioGraffiti.co';
+    const fontSize = Math.round(wmHeight * 0.4);
     ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    
-    // Measure text and reduce font size if it doesn't fit
-    let textWidth = ctx.measureText(watermarkText).width;
-    const maxTextWidth = wmWidth - 20; // 10px padding on each side
-    
-    while (textWidth > maxTextWidth && fontSize > 10) {
-      fontSize -= 1;
-      ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      textWidth = ctx.measureText(watermarkText).width;
-    }
-    
-    // If still too long, use shorter fallback text
-    let finalText = watermarkText;
-    if (textWidth > maxTextWidth) {
-      finalText = 'AudioGraffiti.co';
-    }
-    
+  
     ctx.fillStyle = '#F4D03F'; // Golden yellow
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(finalText, wmX + wmWidth/2, wmY + wmHeight/2);
-    
+    ctx.fillText(watermarkText, wmX + wmWidth/2, wmY + wmHeight/2);
+  
     ctx.restore();
   }
-  // No "else if (plan === 'pro')" is needed because Pro is disabled for launch.
 }
 
   /* ======================= RENDER → WEBM (export) ======================= */
