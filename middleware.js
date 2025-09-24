@@ -1,7 +1,12 @@
 import { authMiddleware } from "@clerk/nextjs";
 
 export default authMiddleware({
-  publicRoutes: ["/"]
+  publicRoutes: [
+    "/",
+    "/api/convert-mp4",
+    "/api/tts", 
+    "/api/transcribe"
+  ]
 });
 
 export const config = {

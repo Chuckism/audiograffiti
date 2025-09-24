@@ -915,60 +915,35 @@ export default function Page() {
         ctx.fillText(lines[i], WIDTH / 2, y);
       }
     }
-
-    // Text-based watermark system (free/pro)
-    if (plan === 'free') {
-      ctx.save();
-      
-      // Watermark dimensions - responsive to canvas width
-      const wmHeight = Math.round(HEIGHT * 0.06);
-      const wmWidth = Math.min(WIDTH * 0.75, WIDTH - 20); // Max 75% width, min 20px margins
-      
-      // Position in upper right with safe margins
-      const wmX = WIDTH - wmWidth - 10;
-      const wmY = HEIGHT * 0.05;
-      
-      // Semi-transparent background for readability
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
-      
-      // Calculate font size that fits the available width
-      const watermarkText = 'Start creating free audiograms at AudioGraffiti.co';
-      let fontSize = Math.round(wmHeight * 0.32);
-      ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      
-      // Measure text and reduce font size if it doesn't fit
-      let textWidth = ctx.measureText(watermarkText).width;
-      const maxTextWidth = wmWidth - 20; // 10px padding on each side
-      
-      while (textWidth > maxTextWidth && fontSize > 10) {
-        fontSize -= 1;
-        ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        textWidth = ctx.measureText(watermarkText).width;
-      }
-      
-      // If still too long, use shorter fallback text
-      let finalText = watermarkText;
-      if (textWidth > maxTextWidth) {
-        finalText = 'AudioGraffiti.co';
-        textWidth = ctx.measureText(finalText).width;
-        
-        // If even fallback is too long, use minimal text
-        if (textWidth > maxTextWidth) {
-          finalText = 'AudioGraffiti.co';
-        }
-      }
-      
-      ctx.fillStyle = '#F4D03F'; // Golden yellow
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(finalText, wmX + wmWidth/2, wmY + wmHeight/2);
-      
-      ctx.restore();
-    } else if (plan === 'pro' && customText.trim()) {
-      // Pro user with custom branding text
-      ctx.save();
-      
+// Text-based watermark system (free/pro)
+if (plan === 'free') {
+  ctx.save();
+  
+  // Watermark dimensions - fixed proportions to avoid computation loops
+  const wmHeight = Math.round(HEIGHT * 0.06);
+  const wmWidth = Math.round(WIDTH * 0.6); // Fixed reasonable width
+  
+  // Position in upper right with safe margins
+  const wmX = WIDTH - wmWidth - 10;
+  const wmY = HEIGHT * 0.05;
+  
+  // Semi-transparent background for readability
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
+  
+  // Use simple text that fits reliably
+  const watermarkText = 'AudioGraffiti.co';
+  const fontSize = Math.round(wmHeight * 0.4);
+  ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  
+  ctx.fillStyle = '#F4D03F'; // Golden yellow
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(watermarkText, wmX + wmWidth/2, wmY + wmHeight/2);
+  
+  ctx.restore();
+}
+ 
       // Watermark dimensions
       const wmHeight = Math.round(HEIGHT * 0.06);
       const wmWidth = Math.round(WIDTH * 0.5);
