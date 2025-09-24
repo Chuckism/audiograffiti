@@ -15,7 +15,6 @@ const MAX_WORDS_PER_SEGMENT = 18;
 const DEFAULT_VOICE = 'nova';
 const VOICE_STORAGE_KEY = 'ag:lastVoice';
 
-// Plan-based character limits
 const PLAN_LIMITS = {
   free: { maxChars: 1500, displayName: 'Free' },
   pro: { maxChars: 2500, displayName: 'Pro' }
@@ -94,10 +93,7 @@ function normalizeSegments(segs, totalDurGuess) {
   }
 
   const last = out[out.length - 1];
-  const total =
-    Number.isFinite(totalDurGuess) && totalDurGuess > 0
-      ? totalDurGuess
-      : last?.end ?? 0;
+  const total = Number.isFinite(totalDurGuess) && totalDurGuess > 0 ? totalDurGuess : last?.end ?? 0;
   if (last && total > 0) last.end = Math.max(last.end, total);
   return out;
 }
@@ -136,7 +132,7 @@ function roundedRectFill(g, x, y, w, h, r) {
 }
 
 function pickRecorderMime() {
-  const cands = [ 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm' ];
+  const cands = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
   for (const t of cands) {
     try {
       if (window.MediaRecorder?.isTypeSupported?.(t)) return t;
@@ -273,14 +269,13 @@ export default function Page() {
   const [artworks, setArtworks] = useState([]);
   const [artOpacity, setArtOpacity] = useState(1);
   const [customBrandingText, setCustomBrandingText] = useState('');
-  const [isUpgrading, setIsUpgrading] = useState(false);
   const [wakeLock, setWakeLock] = useState(null);
   const capMetricsMemoRef = useRef(null);
 
   function computeUniformCaptionMetrics(ctx, segs, fallbackText) {
     const maxWidth = WIDTH * 0.94;
     const texts = segs?.map((s) => (s.text || '').trim()).filter(Boolean) ?? [];
-    if (!texts.length) texts.push((fallbackText || '').trim() || 'Record or upload a short');
+    if (!texts.length) texts.push((fallbackText || '').trim() || 'Record or upload audio');
     const sizeFor = (text) => {
       let lo = 56, hi = 220, best = 56;
       while (lo <= hi) {
@@ -388,7 +383,7 @@ export default function Page() {
       if (!r.ok) {
         let msg = await r.text();
         try { msg = (await r.json())?.error || msg; } catch {}
-        throw new Error(msg || 'Transcription failed (server error).');
+        throw new Error(msg || 'Transcription failed.');
       }
       const data = await r.json();
       setTranscript((data?.text || '').trim());
@@ -422,7 +417,7 @@ export default function Page() {
       if (!tt.ok) {
         let msg = await tt.text();
         try { msg = (await tt.json())?.error || msg; } catch {}
-        throw new Error(msg || 'TTS failed (server error).');
+        throw new Error(msg || 'TTS failed.');
       }
       const audioBlob = await tt.blob();
       const url = URL.createObjectURL(audioBlob);
@@ -547,19 +542,24 @@ export default function Page() {
     setExportReason(res.reason || '');
   }, []);
 
+  // REFINED DRAW FRAME - Fast Performance + Quality Visuals
   function drawFrame(ctx, t, grad, segs, transcriptText, bars, art, artOp, plan, customText) {
-    // --- LAUNCH STABILITY FIX ---
-    // Use a solid background color based on the selected preset to bypass the failing gradient rendering.
-    // This restores user choice while ensuring captions are visible for launch.
-    ctx.fillStyle = grad[0]; // Use the first color of the selected gradient
+    // Background gradient - RESTORED for quality, lightweight operation
+    const g = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+    g.addColorStop(0, grad[0]);
+    g.addColorStop(1, grad[1]);
+    ctx.fillStyle = g;
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
+    // Layout calculations
     const left = WIDTH * 0.06, right = WIDTH * 0.94;
     const availW = right - left, gap = 10;
     const bins = Math.min(64, bars?.length || 64);
     const barW = (availW - (bins - 1) * gap) / bins;
     const maxBarH = isSquare ? 100 : 150;
     const midY = isSquare ? HEIGHT * 0.75 : CAP_TOP - 120;
+    
+    // Artwork rendering
     const artTop = isSquare ? 80 : 120;
     const artBottom = midY - maxBarH / 2 - (isSquare ? 50 : 60);
     const artHeight = Math.max(0, artBottom - artTop);
@@ -568,6 +568,7 @@ export default function Page() {
       drawImageCoverRounded(ctx, art, left, artTop, availW, artHeight, 28, artOp);
     }
 
+    // Waveform bars
     if (bars?.length) {
       ctx.fillStyle = '#f5c445';
       for (let i = 0; i < bins; i++) {
@@ -579,8 +580,10 @@ export default function Page() {
       }
     }
 
+    // Captions with proper timing
     const idx = segmentIndexAtTime(segs, t);
-    const raw = (idx === -1 ? '' : (segs[idx]?.text || transcriptText || 'Record or upload audio').trim());
+    const raw = idx === -1 ? '' : (segs[idx]?.text || transcriptText || 'Record or upload audio').trim();
+
     if (raw) {
       const maxWidth = WIDTH * 0.94;
       if (!capMetricsMemoRef.current) {
@@ -600,7 +603,7 @@ export default function Page() {
       }
     }
     
-    // --- WATERMARK SECTION (Simplified for Launch) ---
+    // PERFORMANCE-OPTIMIZED WATERMARK - No expensive loops
     if (plan === 'free') {
       ctx.save();
       const wmHeight = Math.round(HEIGHT * 0.06);
@@ -626,9 +629,9 @@ export default function Page() {
     a.crossOrigin = 'anonymous';
     a.preload = 'auto';
     await new Promise((res, rej) => {
-        a.addEventListener('canplay', res, { once: true });
-        a.addEventListener('error', rej, { once: true });
-        a.load();
+      a.addEventListener('canplay', res, { once: true });
+      a.addEventListener('error', rej, { once: true });
+      a.load();
     });
     const totalDuration = a.duration;
     if (!totalDuration || !isFinite(totalDuration)) throw new Error('Could not determine audio duration.');
@@ -702,8 +705,7 @@ export default function Page() {
       const grad = autoBg ? gradientAtTime(currentTime, totalDuration, presetIdx) : PRESETS[presetIdx];
       const slide = slideForTime(currentTime, totalDuration, artworks.map((x) => ({ img: x.img })));
       
-      // --- LAUNCH FIX ---
-      // Hardcode plan to 'free' during export to ensure watermark is always drawn
+      // Always render with 'free' plan for launch consistency
       drawFrame(ctx, currentTime, grad, segs, transcript, b, slide, artOpacity, 'free', customBrandingText);
 
       const progress = Math.min(currentTime / totalDuration, 1);
@@ -734,7 +736,7 @@ export default function Page() {
     document.removeEventListener('visibilitychange', onVis);
     onProgress?.(100);
     src.disconnect(); analyser.disconnect(); dest.disconnect(); ac.close();
-    if (webm.size < 1024) throw new Error('Captured video is empty; please record a bit longer and try again.');
+    if (webm.size < 1024) throw new Error('Captured video is empty; please record longer audio.');
     return webm;
   }
 
@@ -758,8 +760,8 @@ export default function Page() {
       if (!r.ok) {
         let msg = `HTTP ${r.status} ${r.statusText}`;
         try {
-            const payload = await r.json();
-            msg = payload?.error || (payload.stderrTail ? `ffmpeg: ${payload.stderrTail}` : msg);
+          const payload = await r.json();
+          msg = payload?.error || (payload.stderrTail ? `ffmpeg: ${payload.stderrTail}` : msg);
         } catch {}
         setErr(msg);
         return;
@@ -843,35 +845,35 @@ export default function Page() {
         </div>
         
         <div className="mb-4">
-            <div className="text-sm font-medium mb-2 text-white/90">Artwork</div>
-            <div className="flex gap-2 mb-3">
-                <label className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm cursor-pointer border border-white/15 text-white/90">
-                    Artwork (up to 3)
-                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onUploadArtwork(e.target.files)} />
-                </label>
-                {artworks.length > 0 && (
-                    <button onClick={clearArtwork} className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm border border-white/15 text-white/90">
-                        Clear Art
-                    </button>
-                )}
-            </div>
+          <div className="text-sm font-medium mb-2 text-white/90">Artwork</div>
+          <div className="flex gap-2 mb-3">
+            <label className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm cursor-pointer border border-white/15 text-white/90">
+              Artwork (up to 3)
+              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onUploadArtwork(e.target.files)} />
+            </label>
             {artworks.length > 0 && (
-                <div className="mb-3 p-3 rounded-lg bg-black/20 border border-white/10">
-                    <div className="flex items-center gap-2 mb-2">
-                        {artworks.map((a, i) => (
-                            <div key={a.url} className="relative h-10 w-10 rounded-md overflow-hidden border border-white/20" title={`Image ${i + 1}`}>
-                                <img src={a.url} alt={`Artwork ${i + 1}`} className="h-full w-full object-cover" />
-                                <span className="absolute -top-1 -left-1 text-[9px] px-1 py-0.5 rounded bg-black/80 border border-white/30 text-white">{i + 1}</span>
-                            </div>
-                        ))}
-                        <div className="ml-auto flex gap-1">
-                            <button type="button" onClick={() => setArtworks((prev) => [...prev].reverse())} className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90">Reverse</button>
-                            <button type="button" onClick={() => setArtworks((prev) => (prev.length ? [...prev.slice(1), prev[0]] : prev))} className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90">Rotate</button>
-                        </div>
-                    </div>
-                    <div className="text-[10px] text-white/60">Order: 1 → 2 → 3 during playback</div>
-                </div>
+              <button onClick={clearArtwork} className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm border border-white/15 text-white/90">
+                Clear Art
+              </button>
             )}
+          </div>
+          {artworks.length > 0 && (
+            <div className="mb-3 p-3 rounded-lg bg-black/20 border border-white/10">
+              <div className="flex items-center gap-2 mb-2">
+                {artworks.map((a, i) => (
+                  <div key={a.url} className="relative h-10 w-10 rounded-md overflow-hidden border border-white/20" title={`Image ${i + 1}`}>
+                    <img src={a.url} alt={`Artwork ${i + 1}`} className="h-full w-full object-cover" />
+                    <span className="absolute -top-1 -left-1 text-[9px] px-1 py-0.5 rounded bg-black/80 border border-white/30 text-white">{i + 1}</span>
+                  </div>
+                ))}
+                <div className="ml-auto flex gap-1">
+                  <button type="button" onClick={() => setArtworks((prev) => [...prev].reverse())} className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90">Reverse</button>
+                  <button type="button" onClick={() => setArtworks((prev) => (prev.length ? [...prev.slice(1), prev[0]] : prev))} className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90">Rotate</button>
+                </div>
+              </div>
+              <div className="text-[10px] text-white/60">Order: 1 → 2 → 3 during playback</div>
+            </div>
+          )}
         </div>
 
         <div className="mb-4">
@@ -889,10 +891,10 @@ export default function Page() {
               {isTtsBusy ? 'Generating…' : 'Generate TTS from Script'}
             </button>
             <div className="text-xs ml-auto">
-                <div className={`${ttsText.trim().length > PLAN_LIMITS[userPlan].maxChars ? 'text-red-400' : 'text-white/60'}`}>
-                    {ttsText.trim().length} / {PLAN_LIMITS[userPlan].maxChars}
-                </div>
-                <div className="text-white/50 text-[10px]">{userPlan} limit</div>
+              <div className={`${ttsText.trim().length > PLAN_LIMITS[userPlan].maxChars ? 'text-red-400' : 'text-white/60'}`}>
+                {ttsText.trim().length} / {PLAN_LIMITS[userPlan].maxChars}
+              </div>
+              <div className="text-white/50 text-[10px]">{userPlan} limit</div>
             </div>
           </div>
         </div>
@@ -958,4 +960,3 @@ export default function Page() {
     </div>
   );
 }
-
