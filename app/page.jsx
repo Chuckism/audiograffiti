@@ -922,14 +922,14 @@ export default function Page() {
       
       // Watermark dimensions - responsive to canvas width
       const wmHeight = Math.round(HEIGHT * 0.06);
-      const wmWidth = Math.min(WIDTH * 0.5, WIDTH - 20); // Max 75% width, min 20px margins
+      const wmWidth = Math.min(WIDTH * 0.75, WIDTH - 20); // Max 75% width, min 20px margins
       
       // Position in upper right with safe margins
       const wmX = WIDTH - wmWidth - 10;
       const wmY = HEIGHT * 0.05;
       
       // Semi-transparent background for readability
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
       roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
       
       // Calculate font size that fits the available width
@@ -950,7 +950,7 @@ export default function Page() {
       // If still too long, use shorter fallback text
       let finalText = watermarkText;
       if (textWidth > maxTextWidth) {
-        finalText = 'AudioGraffiti.co - Upgrade to customize';
+        finalText = 'AudioGraffiti.co';
         textWidth = ctx.measureText(finalText).width;
         
         // If even fallback is too long, use minimal text
