@@ -36,46 +36,36 @@ async function cleanupFile(filePath) {
 }
 
 function findFFmpegPath() {
-  // Common FFmpeg locations in different environments
-  const possiblePaths = [
-    '/usr/bin/ffmpeg',           // Standard Linux
-    '/usr/local/bin/ffmpeg',     // Homebrew/custom installs
-    'ffmpeg',                    // System PATH
-  ];
-
-  // In production (Render), FFmpeg should be available in PATH
+  // In production (Render), FFmpeg should be available in the system PATH
   if (process.env.NODE_ENV === 'production') {
     return 'ffmpeg';
   }
-
-  // For development, try to find FFmpeg
-  return possiblePaths[0]; // Default to standard location
+  // For local development, you might need to specify a path
+  return 'ffmpeg';
 }
 
 async function convertWebMToMP4(inputPath, outputPath) {
   const ffmpegPath = findFFmpegPath();
   
   return new Promise((resolve) => {
+    // --- CRITICAL FIX APPLIED HERE ---
+    // Switched from 'medium' preset to 'ultrafast' to ensure completion within serverless limits.
+    // Adjusted CRF to 28 to maintain reasonable quality and file size with the faster preset.
     const args = [
-      '-i', inputPath,                    // Input file
-      '-c:v', 'libx264',                  // Video codec
-      '-c:a', 'aac',                      // Audio codec
-      '-preset', 'medium',                // Encoding speed vs quality balance
-      '-crf', '23',                       // Quality setting (18-28 range)
-      '-movflags', '+faststart',          // Web optimization
-      '-y',                               // Overwrite output file
-      outputPath                          // Output file
+      '-i', inputPath,
+      '-c:v', 'libx264',
+      '-c:a', 'aac',
+      '-preset', 'ultrafast', // Use the fastest preset
+      '-crf', '28',           // Adjust quality for the faster preset
+      '-movflags', '+faststart',
+      '-y',
+      outputPath
     ];
 
     console.log(`Starting FFmpeg conversion: ${ffmpegPath} ${args.join(' ')}`);
     
     const ffmpeg = spawn(ffmpegPath, args);
-    let stdout = '';
     let stderr = '';
-
-    ffmpeg.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
 
     ffmpeg.stderr.on('data', (data) => {
       stderr += data.toString();
@@ -88,14 +78,13 @@ async function convertWebMToMP4(inputPath, outputPath) {
         console.log('FFmpeg conversion completed successfully');
       } else {
         console.error('FFmpeg conversion failed with code:', code);
-        console.error('FFmpeg stderr:', stderr.slice(-500)); // Last 500 chars
+        console.error('FFmpeg stderr:', stderr.slice(-1000)); // Log last 1000 chars of error
       }
 
       resolve({
         success,
         ffmpegPath,
-        stderr: stderr.slice(-1000), // Last 1000 chars for debugging
-        stdout: stdout.slice(-500)   // Last 500 chars
+        stderr: stderr.slice(-1000),
       });
     });
 
@@ -117,128 +106,80 @@ export async function POST(req) {
   let outputPath = null;
 
   try {
-    // Ensure temp directory exists
     await ensureTempDir();
-
-    // Parse multipart form data
     const formData = await req.formData();
     const file = formData.get('file');
 
     if (!file) {
-      return NextResponse.json(
-        { error: 'No file provided' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    // Validate file size
     if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB` },
-        { status: 413 }
-      );
+      return NextResponse.json({ error: `File too large. Max is ${MAX_FILE_SIZE / 1024 / 1024}MB` }, { status: 413 });
     }
 
-    // Validate file type
     if (!file.type.includes('webm') && !file.name.toLowerCase().includes('webm')) {
-      return NextResponse.json(
-        { error: 'Only WebM files are supported' },
-        { status: 400 }
-      );
+        return NextResponse.json({ error: 'Only WebM files are supported' }, { status: 400 });
     }
 
     console.log(`Processing video conversion: ${file.name} (${file.size} bytes)`);
 
-    // Setup file paths
     inputPath = path.join(TEMP_DIR, `input_${tempId}.webm`);
     outputPath = path.join(TEMP_DIR, `output_${tempId}.mp4`);
 
-    // Write input file
     const buffer = Buffer.from(await file.arrayBuffer());
     await fs.writeFile(inputPath, buffer);
 
     console.log(`Input file written: ${inputPath}`);
 
-    // Convert with FFmpeg
     const conversionResult = await convertWebMToMP4(inputPath, outputPath);
 
     if (!conversionResult.success) {
       return NextResponse.json({
-        error: 'Video conversion failed',
+        error: 'Video conversion failed on the server',
         ffmpegPath: conversionResult.ffmpegPath,
         stderrTail: conversionResult.stderr,
       }, { status: 500 });
     }
 
-    // Verify output file exists and has content
     try {
       const outputStats = await fs.stat(outputPath);
-      if (outputStats.size === 0) {
-        throw new Error('Output file is empty');
-      }
+      if (outputStats.size === 0) throw new Error('Output file is empty');
       console.log(`Conversion successful: ${outputStats.size} bytes`);
     } catch (error) {
       return NextResponse.json({
-        error: 'Conversion appeared to succeed but output file is invalid',
-        ffmpegPath: conversionResult.ffmpegPath,
+        error: 'Conversion succeeded but output file is invalid',
         stderrTail: conversionResult.stderr,
       }, { status: 500 });
     }
 
-    // Read output file
     const outputBuffer = await fs.readFile(outputPath);
 
-    // Schedule cleanup (don't await - let it happen in background)
     setTimeout(async () => {
       if (inputPath) await cleanupFile(inputPath);
       if (outputPath) await cleanupFile(outputPath);
     }, CLEANUP_DELAY);
 
-    // Return MP4 file
     return new NextResponse(outputBuffer, {
       status: 200,
       headers: {
         'Content-Type': 'video/mp4',
         'Content-Disposition': 'attachment; filename="audiograffiti-export.mp4"',
-        'X-Conversion-Success': '1',
-        'X-FFmpeg-Path': conversionResult.ffmpegPath || 'unknown',
       },
     });
 
   } catch (error) {
-    console.error('Video conversion error:', {
-      error: error.message,
+    console.error('Video conversion handler error:', {
+      message: error.message,
       stack: error.stack,
       tempId,
-      timestamp: new Date().toISOString(),
     });
 
-    // Emergency cleanup
     if (inputPath) await cleanupFile(inputPath);
     if (outputPath) await cleanupFile(outputPath);
 
-    // Determine error type and provide appropriate response
-    let statusCode = 500;
-    let errorMessage = 'Video conversion failed';
-
-    if (error.message?.includes('ENOENT') || error.message?.includes('spawn')) {
-      errorMessage = 'Video conversion service unavailable';
-      statusCode = 503;
-    } else if (error.message?.includes('timeout')) {
-      errorMessage = 'Video conversion timed out';
-      statusCode = 504;
-    } else if (error.message?.includes('disk') || error.message?.includes('space')) {
-      errorMessage = 'Insufficient server resources for conversion';
-      statusCode = 507;
-    }
-
     return NextResponse.json({
-      error: errorMessage,
-      tempId,
-      ...(process.env.NODE_ENV === 'development' && {
-        debug: error.message,
-        stack: error.stack?.split('\n').slice(0, 5).join('\n')
-      })
-    }, { status: statusCode });
+      error: 'An unexpected error occurred during video conversion.',
+    }, { status: 500 });
   }
 }
