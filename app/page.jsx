@@ -842,139 +842,128 @@ export default function Page() {
     setExportReason(res.reason || '');
   }, []);
 
-  /* ============================ DRAW FRAME ============================ */
-  function drawFrame(ctx, t, grad, segs, transcriptText, bars, art, artOp, plan, customText) {
-    // Background gradient
-    const g = ctx.createLinearGradient(0, 0, 0, HEIGHT);
-    g.addColorStop(0, grad[0]);
-    g.addColorStop(1, grad[1]);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+ /* ============================ DRAW FRAME ============================ */
+ function drawFrame(ctx, t, grad, segs, transcriptText, bars, art, artOp, plan, customText) {
+  // Background gradient
+  const g = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+  g.addColorStop(0, grad[0]);
+  g.addColorStop(1, grad[1]);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-    // Layout
-    const left = WIDTH * 0.06,
-      right = WIDTH * 0.94;
-    const availW = right - left,
-      gap = 10;
-    const bins = Math.min(64, bars?.length || 64);
-    const barW = (availW - (bins - 1) * gap) / bins;
+  // Layout
+  const left = WIDTH * 0.06,
+    right = WIDTH * 0.94;
+  const availW = right - left,
+    gap = 10;
+  const bins = Math.min(64, bars?.length || 64);
+  const barW = (availW - (bins - 1) * gap) / bins;
 
-    const maxBarH = isSquare ? 100 : 150;
-    const midY = isSquare ? HEIGHT * 0.75 : CAP_TOP - 120;
-    
-    // Artwork area
-    const artTop = isSquare ? 80 : 120;
-    const artBottom = midY - maxBarH / 2 - (isSquare ? 50 : 60);
-    const artHeight = Math.max(0, artBottom - artTop);
-
-    if (art && artHeight > 40) {
-      drawImageCoverRounded(ctx, art, left, artTop, availW, artHeight, 28, artOp);
-    }
-
-    // Waveform
-    if (bars?.length) {
-      ctx.fillStyle = '#f5c445';
-      for (let i = 0; i < bins; i++) {
-        const v = Math.max(0.08, Math.min(1, bars[i]));
-        const h = v * maxBarH;
-        const x = left + i * (barW + gap);
-        const y = midY - h / 2;
-        roundedRectFill(ctx, x, y, barW, h, 14);
-      }
-    }
-
-    // Captions
-    const idx = segmentIndexAtTime(segs, t);
-    const raw =
-      idx === -1
-        ? '' // real gap → intentionally blank to stay tightly synced
-        : (segs[idx]?.text || transcriptText || 'Record or upload audio').trim();
-
-    if (raw) {
-      const maxWidth = WIDTH * 0.94;
-      if (!capMetricsMemoRef.current) {
-        capMetricsMemoRef.current = computeUniformCaptionMetrics(
-          ctx,
-          segs,
-          transcriptText
-        );
-      }
-      const { size: CAP_SIZE, lineHeight: CAP_LH } = capMetricsMemoRef.current;
-
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = `bold ${CAP_SIZE}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillStyle = '#fff';
-
-      const lines = wrapCaption(ctx, raw, maxWidth).slice(0, MAX_LINES);
-      const blockH = (lines.length - 1) * CAP_LH;
-      const startY = CAP_TOP + (CAP_BOX_H - blockH) / 2;
-
-      for (let i = 0; i < lines.length; i++) {
-        const y = startY + i * CAP_LH;
-        ctx.fillText(lines[i], WIDTH / 2, y);
-      }
-    }
-// Text-based watermark system (free/pro)
-if (plan === 'free') {
-  ctx.save();
+  const maxBarH = isSquare ? 100 : 150;
+  const midY = isSquare ? HEIGHT * 0.75 : CAP_TOP - 120;
   
-  // Watermark dimensions - fixed proportions to avoid computation loops
-  const wmHeight = Math.round(HEIGHT * 0.06);
-  const wmWidth = Math.round(WIDTH * 0.6); // Fixed reasonable width
-  
-  // Position in upper right with safe margins
-  const wmX = WIDTH - wmWidth - 10;
-  const wmY = HEIGHT * 0.05;
-  
-  // Semi-transparent background for readability
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-  roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
-  
-  // Use simple text that fits reliably
-  const watermarkText = 'AudioGraffiti.co';
-  const fontSize = Math.round(wmHeight * 0.4);
-  ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-  
-  ctx.fillStyle = '#F4D03F'; // Golden yellow
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(watermarkText, wmX + wmWidth/2, wmY + wmHeight/2);
-  
-  ctx.restore();
-}
- 
-      // Watermark dimensions
-      const wmHeight = Math.round(HEIGHT * 0.06);
-      const wmWidth = Math.round(WIDTH * 0.5);
-      
-      // Position in upper right
-      const wmX = WIDTH - wmWidth - 10;
-      const wmY = HEIGHT * 0.05;
-      
-      // Semi-transparent background
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
-      
-      // Custom branding text with size fitting
-      let fontSize = Math.round(wmHeight * 0.4);
-      ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      
-      let textWidth = ctx.measureText(customText.trim()).width;
-      const maxTextWidth = wmWidth - 20;
-      
-  // Simplified - just use AudioGraffiti.co to avoid expensive loops
-  const finalText = 'AudioGraffiti.co';
-      
-      ctx.fillStyle = '#FFFFFF';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(customText.trim(), wmX + wmWidth/2, wmY + wmHeight/2);
-      
-      ctx.restore();
-    }
-    // Pro users with no custom text get completely clean videos (no watermark)
+  // Artwork area
+  const artTop = isSquare ? 80 : 120;
+  const artBottom = midY - maxBarH / 2 - (isSquare ? 50 : 60);
+  const artHeight = Math.max(0, artBottom - artTop);
+
+  if (art && artHeight > 40) {
+    drawImageCoverRounded(ctx, art, left, artTop, availW, artHeight, 28, artOp);
   }
+
+  // Waveform
+  if (bars?.length) {
+    ctx.fillStyle = '#f5c445';
+    for (let i = 0; i < bins; i++) {
+      const v = Math.max(0.08, Math.min(1, bars[i]));
+      const h = v * maxBarH;
+      const x = left + i * (barW + gap);
+      const y = midY - h / 2;
+      roundedRectFill(ctx, x, y, barW, h, 14);
+    }
+  }
+
+  // Captions
+  const idx = segmentIndexAtTime(segs, t);
+  const raw =
+    idx === -1
+      ? '' // real gap → intentionally blank to stay tightly synced
+      : (segs[idx]?.text || transcriptText || 'Record or upload audio').trim();
+
+  if (raw) {
+    const maxWidth = WIDTH * 0.94;
+    if (!capMetricsMemoRef.current) {
+      capMetricsMemoRef.current = computeUniformCaptionMetrics(
+        ctx,
+        segs,
+        transcriptText
+      );
+    }
+    const { size: CAP_SIZE, lineHeight: CAP_LH } = capMetricsMemoRef.current;
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `bold ${CAP_SIZE}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.fillStyle = '#fff';
+
+    const lines = wrapCaption(ctx, raw, maxWidth).slice(0, MAX_LINES);
+    const blockH = (lines.length - 1) * CAP_LH;
+    const startY = CAP_TOP + (CAP_BOX_H - blockH) / 2;
+
+    for (let i = 0; i < lines.length; i++) {
+      const y = startY + i * CAP_LH;
+      ctx.fillText(lines[i], WIDTH / 2, y);
+    }
+  }
+
+  // --- CORRECTED WATERMARK SECTION ---
+  // Only the simple, fast watermark for the free plan is included.
+  // The broken, duplicated code has been removed.
+  if (plan === 'free') {
+    ctx.save();
+    
+    // Watermark dimensions - fixed proportions to avoid computation loops
+    const wmHeight = Math.round(HEIGHT * 0.06);
+    const wmWidth = Math.round(WIDTH * 0.6); // Fixed reasonable width
+    
+    // Position in upper right with safe margins
+    const wmX = WIDTH - wmWidth - 10;
+    const wmY = HEIGHT * 0.05;
+    
+    // Semi-transparent background for readability
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
+    
+    // Use simple, short text that fits reliably without measurement loops
+    const watermarkText = 'Start creating free audiograms at AudioGraffiti.co';
+    let fontSize = Math.round(wmHeight * 0.32);
+    ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    
+    // Measure text and reduce font size if it doesn't fit
+    let textWidth = ctx.measureText(watermarkText).width;
+    const maxTextWidth = wmWidth - 20; // 10px padding on each side
+    
+    while (textWidth > maxTextWidth && fontSize > 10) {
+      fontSize -= 1;
+      ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      textWidth = ctx.measureText(watermarkText).width;
+    }
+    
+    // If still too long, use shorter fallback text
+    let finalText = watermarkText;
+    if (textWidth > maxTextWidth) {
+      finalText = 'AudioGraffiti.co';
+    }
+    
+    ctx.fillStyle = '#F4D03F'; // Golden yellow
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(finalText, wmX + wmWidth/2, wmY + wmHeight/2);
+    
+    ctx.restore();
+  }
+  // No "else if (plan === 'pro')" is needed because Pro is disabled for launch.
+}
 
   /* ======================= RENDER → WEBM (export) ======================= */
   async function renderWebMBlob(onProgress) {
