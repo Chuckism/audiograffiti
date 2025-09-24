@@ -694,6 +694,8 @@ export default function Page() {
     rec.start();
     a.currentTime = 0;
     await ac.resume();
+    // Add 200ms delay before starting audio to prevent glitch
+    await new Promise(resolve => setTimeout(resolve, 200));
     await a.play();
 
     let raf = 0;
