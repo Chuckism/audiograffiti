@@ -548,7 +548,11 @@ export default function Page() {
   }, []);
 
   function drawFrame(ctx, t, grad, segs, transcriptText, bars, art, artOp, plan, customText) {
-    ctx.fillStyle = `linear-gradient(180deg, ${grad[0]}, ${grad[1]})`;
+    // Background gradient
+    const g = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+    g.addColorStop(0, grad[0]);
+    g.addColorStop(1, grad[1]);
+    ctx.fillStyle = g;
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
     const left = WIDTH * 0.06, right = WIDTH * 0.94;
