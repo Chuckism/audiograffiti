@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 /* ------------------ CONFIG ------------------ */
 const DEFAULT_MODEL = (process.env.TTS_MODEL || "tts-1").trim();        // default TTS model
-const DEFAULT_FORMAT = "mp3";
+const DEFAULT_FORMAT = "wav";
 const DEFAULT_VOICE = (process.env.TTS_DEFAULT_VOICE || "nova").trim();
 
 // Production-safe cache directory
