@@ -922,7 +922,7 @@ export default function Page() {
       
       // Watermark dimensions - responsive to canvas width
       const wmHeight = Math.round(HEIGHT * 0.06);
-      const wmWidth = Math.min(WIDTH * 0.75, WIDTH - 20); // Max 75% width, min 20px margins
+      const wmWidth = Math.min(WIDTH * 0.5, WIDTH - 20); // Max 75% width, min 20px margins
       
       // Position in upper right with safe margins
       const wmX = WIDTH - wmWidth - 10;
@@ -978,7 +978,7 @@ export default function Page() {
       const wmY = HEIGHT * 0.05;
       
       // Semi-transparent background
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
       roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
       
       // Custom branding text with size fitting
