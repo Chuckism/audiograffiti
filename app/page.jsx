@@ -549,9 +549,9 @@ export default function Page() {
 
   function drawFrame(ctx, t, grad, segs, transcriptText, bars, art, artOp, plan, customText) {
     // --- LAUNCH STABILITY FIX ---
-    // Use a solid background color to bypass the failing gradient rendering.
-    // This ensures captions are visible for launch.
-    ctx.fillStyle = '#111827'; // A dark color from the presets
+    // Use a solid background color based on the selected preset to bypass the failing gradient rendering.
+    // This restores user choice while ensuring captions are visible for launch.
+    ctx.fillStyle = grad[0]; // Use the first color of the selected gradient
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
     const left = WIDTH * 0.06, right = WIDTH * 0.94;
@@ -958,3 +958,4 @@ export default function Page() {
     </div>
   );
 }
+
