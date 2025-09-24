@@ -963,11 +963,8 @@ if (plan === 'free') {
       let textWidth = ctx.measureText(customText.trim()).width;
       const maxTextWidth = wmWidth - 20;
       
-      while (textWidth > maxTextWidth && fontSize > 10) {
-        fontSize -= 1;
-        ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        textWidth = ctx.measureText(customText.trim()).width;
-      }
+  // Simplified - just use AudioGraffiti.co to avoid expensive loops
+  const finalText = 'AudioGraffiti.co';
       
       ctx.fillStyle = '#FFFFFF';
       ctx.textAlign = 'center';
@@ -1436,8 +1433,8 @@ if (plan === 'free') {
             )}
           </div>
 
-         {/* Artwork preview and controls */}
-        {artworks.length > 0 && (
+    {/* Artwork preview and controls */}
+    {artworks.length > 0 && (
           <div className="mb-3 p-3 rounded-lg bg-black/20 border border-white/10">
             <div className="flex items-center gap-2 mb-2">
               {artworks.map((a, i) => (
@@ -1481,136 +1478,93 @@ if (plan === 'free') {
             </div>
           </div>
         )}
-      </div>
+        </div>
 
-      {/* Custom Branding Section TEMPORARILY DISABLED FOR FREE-TIER LAUNCH - RESTORE AFTER CRUISE
-      <div className="mb-4 rounded-lg border border-white/10 bg-black/20 p-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-white/90">Custom Branding</span>
-          <span className={`px-2 py-1 rounded text-xs font-medium ${
-            userPlan === 'pro' 
-              ? 'bg-green-500/90 text-black' 
-              : 'bg-gray-500/90 text-white'
-          }`}>
-            {userPlan === 'pro' ? 'PRO' : 'FREE'}
-          </span>
-        </div>
-        <div className="text-xs text-white/70 mb-2">
-          {userPlan === 'free' 
-            ? 'Free videos include "Powered by AudioGraffiti.co" watermark. Upgrade to Pro for custom branding.' 
-            : 'Add your custom text to brand your videos (company name, website, tagline, etc.)'
-          }
-        </div>
-        {userPlan === 'pro' ? (
-          <div>
-            <input
-              type="text"
-              value={customBrandingText}
-              onChange={(e) => setCustomBrandingText(e.target.value)}
-              placeholder="Enter your branding text (e.g., YourCompany.com)"
-              className="w-full rounded-lg bg-white/10 border border-white/15 p-2 text-sm text-white placeholder-white/50"
-              maxLength={50}
-            />
-            <div className="mt-1 text-xs text-white/60">
-              {customBrandingText.length}/50 characters
+        {/* Background swatches */}
+        <div className="mb-4">
+          <div className="flex gap-2 items-center">
+            {PRESETS.map((g, i) => (
+              <button
+                key={i}
+                onClick={() => setPresetIdx(i)}
+                className={`h-6 w-8 rounded-md border transition-all ${
+                  presetIdx === i ? 'border-white/80 scale-110' : 'border-white/20 hover:border-white/40'
+                }`}
+                style={{ background: `linear-gradient(180deg, ${g[0]}, ${g[1]})` }}
+              />
+            ))}
+            
+            <div className="flex items-center gap-2 ml-auto text-xs text-white/80">
+              <span>Auto BG</span>
+              <button
+                onClick={() => setAutoBg((v) => !v)}
+                className={`px-2 py-1 rounded transition-colors ${
+                  autoBg 
+                    ? 'bg-yellow-500/90 text-black font-medium' 
+                    : 'bg-white/15 hover:bg-white/25 text-white/90'
+                }`}
+              >
+                {autoBg ? 'On' : 'Off'}
+              </button>
             </div>
           </div>
-        ) : (
+        </div>
+
+        {/* Export Section */}
+        <div className="mb-4">
           <button
-            onClick={handleUpgradeClick}
-            disabled={isUpgrading}
-            className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-black font-medium py-2 px-4 rounded-lg transition-all duration-200 text-sm"
+            onClick={exportMP4}
+            disabled={isExporting || exportSupported === false || !segments.length}
+            className="w-full px-4 py-3 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed border border-white/15"
+            title={
+              exportSupported === false 
+                ? 'Use desktop Chrome/Edge/Firefox for export' 
+                : !segments.length 
+                ? 'Transcribe audio first'
+                : undefined
+            }
           >
-            {isUpgrading ? 'Loading...' : 'Upgrade to Pro - $19/month'}
+            Export MP4
           </button>
-        )}
-      </div>*/}
-
-      {/* Background swatches */}
-      <div className="mb-4">
-        <div className="flex gap-2 items-center">
-          {PRESETS.map((g, i) => (
-            <button
-              key={i}
-              onClick={() => setPresetIdx(i)}
-              className={`h-6 w-8 rounded-md border transition-all ${
-                presetIdx === i ? 'border-white/80 scale-110' : 'border-white/20 hover:border-white/40'
-              }`}
-              style={{ background: `linear-gradient(180deg, ${g[0]}, ${g[1]})` }}
-            />
-          ))}
           
-          <div className="flex items-center gap-2 ml-auto text-xs text-white/80">
-            <span>Auto BG</span>
-            <button
-              onClick={() => setAutoBg((v) => !v)}
-              className={`px-2 py-1 rounded transition-colors ${
-                autoBg 
-                  ? 'bg-yellow-500/90 text-black font-medium' 
-                  : 'bg-white/15 hover:bg-white/25 text-white/90'
-              }`}
-            >
-              {autoBg ? 'On' : 'Off'}
-            </button>
+          {isExporting && (
+            <div className="mt-2 text-xs text-white/70 text-center">
+              {phase === 'render'
+                ? `Rendering… ${renderPct}%`
+                : phase === 'encode'
+                ? 'Encoding…'
+                : phase === 'save'
+                ? 'Saving…'
+                : 'Working…'}
+            </div>
+          )}
+        </div>
+
+        {/* Audio Player */}
+        <div className="p-3 rounded-lg bg-black/20 border border-white/10">
+          <audio
+            ref={audioRef}
+            src={audioUrl || undefined}
+            controls
+            playsInline
+            preload="auto"
+            className="w-full mb-2"
+          />
+          <div className="flex justify-between text-xs text-white/60">
+            <div>Segments: {Math.max(1, segments.length)}</div>
+            <div>
+              Current: {segments.length ? `${Math.min(currentIdx + 1, segments.length)}/${segments.length}` : '—'}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Export Section */}
-      <div className="mb-4">
-        <button
-          onClick={exportMP4}
-          disabled={isExporting || exportSupported === false || !segments.length}
-          className="w-full px-4 py-3 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed border border-white/15"
-          title={
-            exportSupported === false 
-              ? 'Use desktop Chrome/Edge/Firefox for export' 
-              : !segments.length 
-              ? 'Transcribe audio first'
-              : undefined
-          }
-        >
-          Export MP4
-        </button>
-        
-        {isExporting && (
-          <div className="mt-2 text-xs text-white/70 text-center">
-            {phase === 'render'
-              ? `Rendering… ${renderPct}%`
-              : phase === 'encode'
-              ? 'Encoding…'
-              : phase === 'save'
-              ? 'Saving…'
-              : 'Working…'}
+        {/* Error display */}
+        {err && (
+          <div className="mt-3 text-sm text-red-300 bg-red-900/30 rounded-lg p-3 border border-red-400/30 whitespace-pre-wrap">
+            {err}
           </div>
         )}
       </div>
-
-      {/* Audio Player */}
-      <div className="p-3 rounded-lg bg-black/20 border border-white/10">
-        <audio
-          ref={audioRef}
-          src={audioUrl || undefined}
-          controls
-          playsInline
-          preload="auto"
-          className="w-full mb-2"
-        />
-        <div className="flex justify-between text-xs text-white/60">
-          <div>Segments: {Math.max(1, segments.length)}</div>
-          <div>
-            Current: {segments.length ? `${Math.min(currentIdx + 1, segments.length)}/${segments.length}` : '—'}
-          </div>
-        </div>
-      </div>
-
-      {/* Error display */}
-      {err && (
-        <div className="mt-3 text-sm text-red-300 bg-red-900/30 rounded-lg p-3 border border-red-400/30 whitespace-pre-wrap">
-          {err}
-        </div>
-      )}
     </div>
-  </div>
-);
+  );
 }
