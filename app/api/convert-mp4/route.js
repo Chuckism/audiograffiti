@@ -52,14 +52,15 @@ async function convertWebMToMP4(inputPath, outputPath) {
     // Switched from 'medium' preset to 'ultrafast' to ensure completion within serverless limits.
     // Adjusted CRF to 28 to maintain reasonable quality and file size with the faster preset.
     const args = [
-      '-i', inputPath,
-      '-c:v', 'libx264',
-      '-c:a', 'aac',
-      '-preset', 'ultrafast', // Use the fastest preset
-      '-crf', '28',           // Adjust quality for the faster preset
-      '-movflags', '+faststart',
-      '-y',
-      outputPath
+      '-i', inputPath,                    // Input file
+      '-c:v', 'libx264',                  // Video codec
+      '-c:a', 'aac',                      // Audio codec
+      '-af', 'afade=t=in:st=0:d=0.3',     // 0.3 second audio fade-in
+      '-preset', 'medium',                // Encoding speed vs quality balance
+      '-crf', '23',                       // Quality setting (18-28 range)
+      '-movflags', '+faststart',          // Web optimization
+      '-y',                               // Overwrite output file
+      outputPath                          // Output file
     ];
 
     console.log(`Starting FFmpeg conversion: ${ffmpegPath} ${args.join(' ')}`);
