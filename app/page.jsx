@@ -5,19 +5,18 @@ import { SignInButton, SignUpButton, UserButton, useAuth, useUser } from "@clerk
 
 /* ============================ CONSTANTS ============================ */
 const FORMATS = {
-  '9:16': { width: 1080, height: 1920, name: 'Vertical (9:16)' },
-  '1:1':  { width: 1080, height: 1080,  name: 'Square (1:1)' },
+  '4:3':  { width: 1280, height: 960,  name: 'Storyline (4:3)' },
 };
 
 const FPS = 30;
-const MAX_LINES = 3;
+const MAX_LINES = 5;
 const MAX_WORDS_PER_SEGMENT = 18;
-const DEFAULT_VOICE = 'nova';
+const DEFAULT_VOICE = 'brittany';
 const VOICE_STORAGE_KEY = 'ag:lastVoice';
 
 const PLAN_LIMITS = {
-  free: { maxChars: 1500, displayName: 'Free' },
-  pro: { maxChars: 2500, displayName: 'Pro' }
+  free: { maxChars: 50000, displayName: 'Free' },
+  pro: { maxChars: 50000, displayName: 'Pro' }
 };
 
 const PRESETS = [
@@ -96,6 +95,139 @@ function normalizeSegments(segs, totalDurGuess) {
   const total = Number.isFinite(totalDurGuess) && totalDurGuess > 0 ? totalDurGuess : last?.end ?? 0;
   if (last && total > 0) last.end = Math.max(last.end, total);
   return out;
+}
+
+/* ============= NEW: CHARACTER TAG PARSING ============= */
+
+/**
+ * Parse character-tagged script in format: [NAME]: dialogue
+ * Returns: { lines: [{speaker, text}], characters: [unique names] }
+ */
+function parseCharacterScript(scriptText) {
+  if (!scriptText || typeof scriptText !== 'string') {
+    return { lines: [], characters: [] };
+  }
+
+  const lines = [];
+  const characterSet = new Set();
+  
+  // Split by newlines and process each line
+  const rawLines = scriptText.split('\n');
+  
+  for (const rawLine of rawLines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue; // Skip empty lines
+    
+    // Match pattern: [CHARACTER]:, CHARACTER:, or **CHARACTER:** dialogue text
+    // Supports uppercase letters, spaces, hyphens in character names
+    // Flexible format accepts brackets and/or bold markdown
+    const match = trimmed.match(/^\*?\*?\[?([A-Z][A-Z\s\-]*)\]?\*?\*?:\s*(.+)$/i);
+    
+    if (match) {
+      const speaker = match[1].trim().toUpperCase();
+      const text = match[2].trim();
+      
+      if (speaker && text) {
+        lines.push({ speaker, text });
+        characterSet.add(speaker);
+      }
+    }
+  }
+  
+  return {
+    lines,
+    characters: Array.from(characterSet).sort()
+  };
+}
+
+/* ====================================================== */
+
+// Voice mapping: Character names (backend handles ElevenLabs mapping)
+const VOICE_API_MAPPING = {
+  'shawn': 'shawn',
+  'chuck': 'chuck',
+  'max': 'max',
+  'boomer': 'boomer',
+  'brittany': 'brittany',
+  'kaitlyn': 'kaitlyn',
+  'sage': 'sage',
+  'randy': 'randy',
+  'coral': 'coral'
+};
+
+// Voice color themes for default character images (using custom names)
+const VOICE_THEMES = {
+  shawn: { bg: '#2563EB', name: 'Shawn', apiVoice: 'Brian' },
+  chuck: { bg: '#3B82F6', name: 'Chuck', apiVoice: 'Chuck Clone 2' },
+  brittany: { bg: '#8B5CF6', name: 'Brittany', apiVoice: 'Adeline' },
+  kaitlyn: { bg: '#EC4899', name: 'Kaitlyn', apiVoice: 'Rachel' },
+  boomer: { bg: '#1F2937', name: 'Boomer', apiVoice: 'James' },
+  sage: { bg: '#10B981', name: 'Sage', apiVoice: 'Kaylin' },
+  max: { bg: '#F59E0B', name: 'Max', apiVoice: 'Adam Stone' },
+  randy: { bg: '#9CA3AF', name: 'Randy', apiVoice: 'Ryan' },
+  coral: { bg: '#F97316', name: 'Coral', apiVoice: 'Nicole' },
+};
+
+/**
+ * Load character image from public folder
+ * Returns a promise that resolves to { url, img }
+ */
+function loadCharacterImage(voiceName) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const imagePath = `/characters/${voiceName}.png`;
+    
+    img.onload = () => {
+      resolve({ url: imagePath, img });
+    };
+    
+    img.onerror = () => {
+      console.warn(`Failed to load image for ${voiceName}, using placeholder`);
+      // Fallback to colored placeholder if image fails to load
+      resolve(generateDefaultCharacterImage(voiceName.toUpperCase(), voiceName));
+    };
+    
+    img.src = imagePath;
+  });
+}
+function generateDefaultCharacterImage(characterName, voiceName) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  
+  const theme = VOICE_THEMES[voiceName] || VOICE_THEMES.shawn;
+  
+  // Draw background
+  ctx.fillStyle = theme.bg;
+  ctx.fillRect(0, 0, 512, 512);
+  
+  // Draw character name
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 72px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(characterName, 256, 256);
+  
+  // Convert to image
+  const img = new Image();
+  img.src = canvas.toDataURL();
+  return { url: img.src, img };
+}
+
+/**
+ * Strip character tags from script for TTS generation
+ * [ALEX]: Hello → Hello
+ */
+function stripCharacterTags(scriptText) {
+  if (!scriptText) return '';
+  const lines = scriptText.split('\n');
+  return lines
+    .map(line => {
+      const match = line.match(/^\[([A-Z][A-Z\s\-]*)\]:\s*(.+)$/i);
+      return match ? match[2].trim() : line;
+    })
+    .join('\n');
 }
 
 function wrapCaption(ctx, text, maxWidth) {
@@ -187,7 +319,7 @@ function drawImageCoverRounded(ctx, img, dx, dy, dW, dH, radius = 28, opacity = 
 function buildSegmentsFromTextAndDuration(text, durationSec) {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [{ start: 0, end: Math.max(1, durationSec), text: '' }];
-  const FIXED_WORDS_PER_SEGMENT = 6;
+  const FIXED_WORDS_PER_SEGMENT = 12;
   const chunks = [];
   for (let i = 0; i < words.length; i += FIXED_WORDS_PER_SEGMENT) {
     chunks.push(words.slice(i, i + FIXED_WORDS_PER_SEGMENT).join(' '));
@@ -237,12 +369,11 @@ export default function Page() {
   const { isSignedIn } = useAuth();
   const { user } = useUser();
   const userPlan = useMemo(() => getUserPlan(user), [user]);
-  const [selectedFormat, setSelectedFormat] = useState('1:1');
+  const [selectedFormat, setSelectedFormat] = useState('4:3');
   const FORMAT = FORMATS[selectedFormat];
-  const WIDTH = FORMAT?.width || 1080;
-  const HEIGHT = FORMAT?.height || 1920;
-  const isSquare = WIDTH === HEIGHT;
-  const CAP_TOP = isSquare ? HEIGHT * 0.83 : 1200;
+  const WIDTH = FORMAT?.width || 1280;
+  const HEIGHT = FORMAT?.height || 960;
+  const CAP_TOP = 1200;
   const CAP_BOTTOM = HEIGHT - 96;
   const CAP_BOX_H = CAP_BOTTOM - CAP_TOP;
   const audioRef = useRef(null);
@@ -262,13 +393,20 @@ export default function Page() {
   const [renderPct, setRenderPct] = useState(0);
   const [exportSupported, setExportSupported] = useState(null);
   const [exportReason, setExportReason] = useState('');
-  const [voices] = useState(['alloy', 'echo', 'nova', 'shimmer', 'onyx', 'sage', 'fable', 'ash', 'coral']);
+  const [voices] = useState(['shawn', 'chuck', 'brittany', 'kaitlyn', 'boomer', 'sage', 'max', 'randy', 'coral']);
   const [ttsText, setTtsText] = useState('');
-  const [ttsVoice, setTtsVoice] = useState(DEFAULT_VOICE);
+  const [ttsVoice, setTtsVoice] = useState('brittany');
   const [isTtsBusy, setIsTtsBusy] = useState(false);
   const [artworks, setArtworks] = useState([]);
   const [artOpacity, setArtOpacity] = useState(1);
   const [customBrandingText, setCustomBrandingText] = useState('');
+  
+  // Character-switching states (max 2 characters for PrimoScenarios)
+  const [detectedCharacters, setDetectedCharacters] = useState([]);
+  const speakerTimingsRef = useRef(null); // Store actual speaker timings from backend
+  const [characterImages, setCharacterImages] = useState({}); // { "ALEX": {url, img}, "JAMIE": {url, img} }
+  const [characterVoices, setCharacterVoices] = useState({}); // { "ALEX": "alloy", "JAMIE": "nova" }
+  
   const [wakeLock, setWakeLock] = useState(null);
   const capMetricsMemoRef = useRef(null);
 
@@ -409,16 +547,59 @@ export default function Page() {
       }
       setIsTtsBusy(true);
       setErr(null);
-      const tt = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: ttsText.trim(), voice: ttsVoice, format: 'mp3', userPlan: userPlan }),
-      });
+      
+      let tt;
+      
+      if (detectedCharacters.length > 0) {
+        // MULTI-VOICE MODE: Build segments with character voices
+        const parsed = parseCharacterScript(ttsText.trim());
+        const segments = parsed.lines.map(line => {
+          const customVoice = characterVoices[line.speaker] || 'shawn';
+          const apiVoice = VOICE_API_MAPPING[customVoice] || 'alloy';
+          return {
+            text: line.text,
+            voice: apiVoice // Convert to API voice name
+          };
+        });
+        
+        console.log(`Generating multi-voice TTS with ${segments.length} segments`);
+        
+        tt = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            segments: segments, 
+            userPlan: userPlan 
+          }),
+        });
+      } else {
+        // SINGLE VOICE MODE: Original behavior
+        const apiVoice = VOICE_API_MAPPING[ttsVoice] || 'alloy';
+        tt = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            text: ttsText.trim(), 
+            voice: apiVoice, // Convert to API voice name
+            format: 'mp3', 
+            userPlan: userPlan 
+          }),
+        });
+      }
       if (!tt.ok) {
         let msg = await tt.text();
         try { msg = (await tt.json())?.error || msg; } catch {}
         throw new Error(msg || 'TTS failed.');
       }
+      
+      // Capture speaker timing data from backend
+      const speakerTimingsHeader = tt.headers.get('X-Speaker-Timings');
+      const speakerTimings = speakerTimingsHeader ? JSON.parse(speakerTimingsHeader) : null;
+      if (speakerTimings) {
+        console.log('Received speaker timings from backend:', speakerTimings);
+        speakerTimingsRef.current = speakerTimings;
+      }
+      
       const audioBlob = await tt.blob();
       const url = URL.createObjectURL(audioBlob);
       setAudioUrl(url);
@@ -486,6 +667,62 @@ export default function Page() {
 
   useEffect(() => { capMetricsMemoRef.current = null; }, [segments, transcript, selectedFormat]);
 
+  // Auto-detect characters from tagged script (limit to 2 for PrimoScenarios)
+  useEffect(() => {
+    if (ttsText.trim()) {
+      const parsed = parseCharacterScript(ttsText);
+      const chars = parsed.characters.slice(0, 2); // Limit to 2 characters
+      setDetectedCharacters(chars);
+      
+      // Auto-assign voices based on character names (1-to-1 match)
+      // If character name doesn't match a voice, use next unused voice
+      const newVoices = {};
+      const usedVoices = new Set();
+      
+      // First pass: assign exact matches
+      chars.forEach((char) => {
+        const voiceName = char.toLowerCase();
+        if (voices.includes(voiceName)) {
+          newVoices[char] = voiceName;
+          usedVoices.add(voiceName);
+        }
+      });
+      
+      // Second pass: assign unused voices to non-matching characters
+      chars.forEach((char) => {
+        if (!newVoices[char]) {
+          // Find first unused voice
+          const unusedVoice = voices.find(v => !usedVoices.has(v));
+          newVoices[char] = unusedVoice || 'shawn'; // Fallback to shawn if all used
+          usedVoices.add(newVoices[char]);
+          console.log(`Character ${char} doesn't match a voice. Assigned ${newVoices[char]}.`);
+        }
+      });
+      
+      setCharacterVoices(newVoices);
+      
+      // Load actual character images from public folder
+      const loadImages = async () => {
+        const newImages = {};
+        for (const char of chars) {
+          const voice = newVoices[char] || 'shawn';
+          try {
+            newImages[char] = await loadCharacterImage(voice);
+          } catch (err) {
+            console.error(`Failed to load image for ${char}:`, err);
+            // Fallback to placeholder
+            newImages[char] = generateDefaultCharacterImage(char, voice);
+          }
+        }
+        setCharacterImages(newImages);
+      };
+      
+      loadImages();
+    } else {
+      setDetectedCharacters([]);
+    }
+  }, [ttsText]);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -542,68 +779,205 @@ export default function Page() {
     setExportReason(res.reason || '');
   }, []);
 
-  // REFINED DRAW FRAME - Fast Performance + Quality Visuals
+  /**
+   * Map segments to speakers using actual timing from backend when available
+   * Falls back to estimation if timing data not provided
+   */
+  function mapSegmentsToSpeakers(segments, scriptText, speakerTimings = null) {
+    if (!scriptText || !segments.length) return segments;
+    
+    const parsed = parseCharacterScript(scriptText);
+    if (!parsed.lines.length) return segments;
+    
+    // If we have actual timing from backend, use it!
+    if (speakerTimings && speakerTimings.length > 0) {
+      console.log('Using actual speaker timings from backend for perfect sync');
+      
+      return segments.map(segment => {
+        const segmentMidpoint = (segment.start + segment.end) / 2;
+        
+        // Find which timing this segment falls into
+        const timing = speakerTimings.find(t => 
+          segmentMidpoint >= t.startTime && segmentMidpoint < t.endTime
+        );
+        
+        const speaker = timing?.speaker || parsed.characters[0] || null;
+        
+        return {
+          ...segment,
+          speaker
+        };
+      });
+    }
+    
+    // FALLBACK: Estimate timing (old approach)
+    console.log('Estimating speaker timings (no backend data available)');
+    
+    const PAUSE_DURATION = 1.0;
+    const INITIAL_SILENCE = 0.2;
+    const totalAudioDuration = segments[segments.length - 1]?.end || 0;
+    const totalScriptLength = parsed.lines.reduce((sum, line) => sum + line.text.length, 0);
+    
+    let speakerChanges = 0;
+    for (let i = 1; i < parsed.lines.length; i++) {
+      if (parsed.lines[i].speaker !== parsed.lines[i - 1].speaker) {
+        speakerChanges++;
+      }
+    }
+    
+    const totalPauseTime = speakerChanges * PAUSE_DURATION;
+    const totalSpeakingTime = Math.max(0, totalAudioDuration - totalPauseTime - INITIAL_SILENCE);
+    
+    const scriptTimeline = [];
+    let cumulativeTime = 0.2;
+    let lastSpeaker = null;
+    
+    for (const line of parsed.lines) {
+      if (lastSpeaker && lastSpeaker !== line.speaker) {
+        cumulativeTime += PAUSE_DURATION;
+      }
+      
+      const lineDuration = (line.text.length / totalScriptLength) * totalSpeakingTime;
+      scriptTimeline.push({
+        speaker: line.speaker,
+        startTime: cumulativeTime,
+        endTime: cumulativeTime + lineDuration
+      });
+      cumulativeTime += lineDuration;
+      lastSpeaker = line.speaker;
+    }
+    
+    return segments.map(segment => {
+      const segmentMidpoint = (segment.start + segment.end) / 2;
+      
+      const scriptLine = scriptTimeline.find(line => 
+        segmentMidpoint >= line.startTime && segmentMidpoint < line.endTime
+      );
+      
+      const speaker = scriptLine?.speaker || parsed.characters[0] || null;
+      
+      return {
+        ...segment,
+        speaker
+      };
+    });
+  }
+
+  // PRIMO SCENARIOS - Character-Switching Frame Renderer
   function drawFrame(ctx, t, grad, segs, transcriptText, bars, art, artOp, plan, customText) {
-    // Background gradient - RESTORED for quality, lightweight operation
+    // Background gradient
     const g = ctx.createLinearGradient(0, 0, 0, HEIGHT);
     g.addColorStop(0, grad[0]);
     g.addColorStop(1, grad[1]);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-    // Layout calculations
-    const left = WIDTH * 0.06, right = WIDTH * 0.94;
-    const availW = right - left, gap = 10;
-    const bins = Math.min(64, bars?.length || 64);
-    const barW = (availW - (bins - 1) * gap) / bins;
-    const maxBarH = isSquare ? 100 : 150;
-    const midY = isSquare ? HEIGHT * 0.75 : CAP_TOP - 120;
+    // Determine if we have character mode
+    const hasCharacters = detectedCharacters.length > 0;
     
-    // Artwork rendering
-    const artTop = isSquare ? 80 : 120;
-    const artBottom = midY - maxBarH / 2 - (isSquare ? 50 : 60);
-    const artHeight = Math.max(0, artBottom - artTop);
-
-    if (art && artHeight > 40) {
-      drawImageCoverRounded(ctx, art, left, artTop, availW, artHeight, 28, artOp);
-    }
-
-    // Waveform bars
-    if (bars?.length) {
-      ctx.fillStyle = '#f5c445';
-      for (let i = 0; i < bins; i++) {
-        const v = Math.max(0.08, Math.min(1, bars[i]));
-        const h = v * maxBarH;
-        const x = left + i * (barW + gap);
-        const y = midY - h / 2;
-        roundedRectFill(ctx, x, y, barW, h, 14);
+    if (hasCharacters) {
+      // CHARACTER-SWITCHING MODE: 4:3 Split-screen layout
+      const idx = segmentIndexAtTime(segs, t);
+      const currentSeg = idx === -1 ? null : segs[idx];
+      const speaker = currentSeg?.speaker || detectedCharacters[0];
+      const characterImg = characterImages[speaker]?.img;
+      
+      // 4:3 format: Left = Character, Right = Caption
+      const splitX = WIDTH / 2;
+      
+      // Draw character image on left half
+      if (characterImg && characterImg.complete) {
+        drawImageCoverRounded(ctx, characterImg, 0, 0, splitX, HEIGHT, 0, 1);
       }
-    }
-
-    // Captions with proper timing
-    const idx = segmentIndexAtTime(segs, t);
-    const raw = idx === -1 ? '' : (segs[idx]?.text || transcriptText || 'Record or upload audio').trim();
-
-    if (raw) {
-      const maxWidth = WIDTH * 0.94;
-      if (!capMetricsMemoRef.current) {
-        capMetricsMemoRef.current = computeUniformCaptionMetrics(ctx, segs, transcriptText);
+      
+      // Draw caption on right half
+      if (currentSeg?.text) {
+        const capX = splitX;
+        const capW = WIDTH - splitX;
+        const capH = HEIGHT;
+        const maxWidth = capW * 0.9;
+        
+        if (!capMetricsMemoRef.current) {
+          capMetricsMemoRef.current = computeUniformCaptionMetrics(ctx, segs, transcriptText);
+        }
+        const { size: CAP_SIZE, lineHeight: CAP_LH } = capMetricsMemoRef.current;
+        
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `bold ${CAP_SIZE}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillStyle = '#fff';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+        ctx.shadowBlur = 12;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 2;
+        
+        const lines = wrapCaption(ctx, currentSeg.text, maxWidth).slice(0, MAX_LINES);
+        const blockH = (lines.length - 1) * CAP_LH;
+        const startY = (capH - blockH) / 2;
+        
+        for (let i = 0; i < lines.length; i++) {
+          const y = startY + i * CAP_LH;
+          ctx.fillText(lines[i], capX + capW / 2, y);
+        }
+        
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
       }
-      const { size: CAP_SIZE, lineHeight: CAP_LH } = capMetricsMemoRef.current;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = `bold ${CAP_SIZE}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillStyle = '#fff';
-      const lines = wrapCaption(ctx, raw, maxWidth).slice(0, MAX_LINES);
-      const blockH = (lines.length - 1) * CAP_LH;
-      const startY = CAP_TOP + (CAP_BOX_H - blockH) / 2;
-      for (let i = 0; i < lines.length; i++) {
-        const y = startY + i * CAP_LH;
-        ctx.fillText(lines[i], WIDTH / 2, y);
+    } else {
+      // LEGACY MODE: Original AudioGraffiti layout
+      const left = WIDTH * 0.06, right = WIDTH * 0.94;
+      const availW = right - left, gap = 10;
+      const bins = Math.min(64, bars?.length || 64);
+      const barW = (availW - (bins - 1) * gap) / bins;
+      const maxBarH = 150;
+      const midY = CAP_TOP - 120;
+      
+      // Artwork rendering
+      const artTop = 120;
+      const artBottom = midY - maxBarH / 2 - 60;
+      const artHeight = Math.max(0, artBottom - artTop);
+
+      if (art && artHeight > 40) {
+        drawImageCoverRounded(ctx, art, left, artTop, availW, artHeight, 28, artOp);
+      }
+
+      // Waveform bars
+      if (bars?.length) {
+        ctx.fillStyle = '#f5c445';
+        for (let i = 0; i < bins; i++) {
+          const v = Math.max(0.08, Math.min(1, bars[i]));
+          const h = v * maxBarH;
+          const x = left + i * (barW + gap);
+          const y = midY - h / 2;
+          roundedRectFill(ctx, x, y, barW, h, 14);
+        }
+      }
+
+      // Captions with proper timing
+      const idx = segmentIndexAtTime(segs, t);
+      const raw = idx === -1 ? '' : (segs[idx]?.text || transcriptText || 'Record or upload audio').trim();
+
+      if (raw) {
+        const maxWidth = WIDTH * 0.94;
+        if (!capMetricsMemoRef.current) {
+          capMetricsMemoRef.current = computeUniformCaptionMetrics(ctx, segs, transcriptText);
+        }
+        const { size: CAP_SIZE, lineHeight: CAP_LH } = capMetricsMemoRef.current;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `bold ${CAP_SIZE}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillStyle = '#fff';
+        const lines = wrapCaption(ctx, raw, maxWidth).slice(0, MAX_LINES);
+        const blockH = (lines.length - 1) * CAP_LH;
+        const startY = CAP_TOP + (CAP_BOX_H - blockH) / 2;
+        for (let i = 0; i < lines.length; i++) {
+          const y = startY + i * CAP_LH;
+          ctx.fillText(lines[i], WIDTH / 2, y);
+        }
       }
     }
     
-    // PERFORMANCE-OPTIMIZED WATERMARK - No expensive loops
+    // Watermark
     if (plan === 'free') {
       ctx.save();
       const wmHeight = Math.round(HEIGHT * 0.06);
@@ -612,7 +986,7 @@ export default function Page() {
       const wmY = HEIGHT * 0.05;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
       roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
-      const watermarkText = 'AudioGraffiti.co';
+      const watermarkText = 'Scenaryoze.com';
       const fontSize = Math.round(wmHeight * 0.4);
       ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillStyle = '#F4D03F';
@@ -654,7 +1028,15 @@ export default function Page() {
     const videoStream = off.captureStream(FPS);
     const mixed = new MediaStream([...videoStream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
     const mime = pickRecorderMime();
-    const rec = mime ? new MediaRecorder(mixed, { mimeType: mime }) : new MediaRecorder(mixed);
+    
+    // Add bitrate limits to keep file size reasonable (under 100MB for most videos)
+    const recorderOptions = {
+      mimeType: mime,
+      videoBitsPerSecond: 3000000,  // 3 Mbps video = good quality, small file
+      audioBitsPerSecond: 128000     // 128 kbps audio = standard quality
+    };
+    
+    const rec = mime ? new MediaRecorder(mixed, recorderOptions) : new MediaRecorder(mixed);
     const chunks = [];
     rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
     const done = new Promise((resolve) => { rec.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' })); });
@@ -690,7 +1072,13 @@ export default function Page() {
       };
     })();
 
-    const segs = segments.length ? segments : [{ start: 0, end: totalDuration, text: transcript || '' }];
+    let segs = segments.length ? segments : [{ start: 0, end: totalDuration, text: transcript || '' }];
+    
+    // Map segments to speakers for character switching
+    if (detectedCharacters.length > 0) {
+      segs = mapSegmentsToSpeakers(segs, ttsText, speakerTimingsRef.current);
+    }
+    
     rec.start();
     a.currentTime = 0;
     await ac.resume();
@@ -798,9 +1186,9 @@ export default function Page() {
   if (!isSignedIn) {
     return (
       <div className="min-h-dvh w-full bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,.9),#000)] text-white flex items-center justify-center p-4">
-        <div className="w-[420px] max-w-[92vw] rounded-2xl bg-white/5 backdrop-blur-sm shadow-2xl border border-white/10 p-8 text-center">
-          <h1 className="text-2xl font-bold mb-4">AudioGraffiti</h1>
-          <p className="mb-6 opacity-80">Professional audiograms for LinkedIn</p>
+        <div className="w-[900px] max-w-[95vw] rounded-2xl bg-white/5 backdrop-blur-sm shadow-2xl border border-white/10 p-8 text-center">
+          <h1 className="text-2xl font-bold mb-4">Scenaryoze</h1>
+          <p className="mb-6 opacity-80">Character-switching training videos</p>
           <div className="space-y-3">
             <SignInButton mode="modal">
               <button className="w-full px-4 py-2 bg-yellow-500/90 hover:bg-yellow-500 text-black rounded-md font-medium">
@@ -820,9 +1208,9 @@ export default function Page() {
 
   return (
     <div className="min-h-dvh w-full bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,.9),#000)] text-white flex items-center justify-center p-4">
-      <div className="w-[420px] max-w-[92vw] rounded-2xl bg-white/5 backdrop-blur-sm shadow-2xl border border-white/10 p-4">
+      <div className="w-[900px] max-w-[95vw] rounded-2xl bg-white/5 backdrop-blur-sm shadow-2xl border border-white/10 p-6">
         <div className="flex items-center justify-between mb-4">
-          <img src="/audiograffiti-logo.png" alt="AudioGraffiti" className="h-8 w-auto" />
+          <div className="text-xl font-bold text-white">Scenaryoze</div>
           <UserButton />
         </div>
 
@@ -835,62 +1223,66 @@ export default function Page() {
         )}
 
         <div className="mb-4">
-          <div className="text-sm font-medium mb-2 text-white/90">Aspect Ratio</div>
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(FORMATS).map(([key, format]) => (
-              <button key={key} onClick={() => setSelectedFormat(key)} className={`px-3 py-2 rounded-lg text-sm border transition-colors ${selectedFormat === key ? 'bg-yellow-500/90 text-black border-yellow-300 font-medium' : 'bg-white/10 hover:bg-white/20 border-white/15 text-white/90'}`}>
-                <div className="font-medium">{format.name}</div>
-                <div className="text-xs opacity-70">{format.width}×{format.height}</div>
-              </button>
-            ))}
+          <div className="text-sm font-medium mb-2 text-white/90">
+            Character Images
           </div>
-        </div>
-        
-        <div className="mb-4">
-          <div className="text-sm font-medium mb-2 text-white/90">Artwork</div>
-          <div className="flex gap-2 mb-3">
-            <label className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm cursor-pointer border border-white/15 text-white/90">
-              Artwork (up to 3)
-              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onUploadArtwork(e.target.files)} />
-            </label>
-            {artworks.length > 0 && (
-              <button onClick={clearArtwork} className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm border border-white/15 text-white/90">
-                Clear Art
-              </button>
-            )}
-          </div>
-          {artworks.length > 0 && (
-            <div className="mb-3 p-3 rounded-lg bg-black/20 border border-white/10">
-              <div className="flex items-center gap-2 mb-2">
-                {artworks.map((a, i) => (
-                  <div key={a.url} className="relative h-10 w-10 rounded-md overflow-hidden border border-white/20" title={`Image ${i + 1}`}>
-                    <img src={a.url} alt={`Artwork ${i + 1}`} className="h-full w-full object-cover" />
-                    <span className="absolute -top-1 -left-1 text-[9px] px-1 py-0.5 rounded bg-black/80 border border-white/30 text-white">{i + 1}</span>
-                  </div>
-                ))}
-                <div className="ml-auto flex gap-1">
-                  <button type="button" onClick={() => setArtworks((prev) => [...prev].reverse())} className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90">Reverse</button>
-                  <button type="button" onClick={() => setArtworks((prev) => (prev.length ? [...prev.slice(1), prev[0]] : prev))} className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 border border-white/15 text-white/90">Rotate</button>
+          
+          
+            <div className="space-y-3">
+              {detectedCharacters.length > 2 && (
+                <div className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-400/30 rounded-lg p-2">
+                  ⚠️ Scenaryoze supports max 2 characters. Using first 2.
                 </div>
-              </div>
-              <div className="text-[10px] text-white/60">Order: 1 → 2 → 3 during playback</div>
+              )}
+              {detectedCharacters.map((character, idx) => (
+                <div key={character} className="p-3 rounded-lg bg-black/20 border border-white/10">
+                  <div className="flex items-start gap-3">
+                    {/* Character Image Preview */}
+                    <div className="relative h-16 w-16 rounded-md overflow-hidden border border-white/20 flex-shrink-0">
+                      {characterImages[character] ? (
+                        <img 
+                          src={characterImages[character].url} 
+                          alt={character} 
+                          className="h-full w-full object-cover" 
+                        />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center bg-gray-700 text-white text-xs">
+                          Loading...
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Character Info */}
+                    <div className="flex-1 space-y-1">
+                      <div className="font-medium text-white/90">{character}</div>
+                      <div className="text-xs text-white/60">
+                        Voice: {VOICE_THEMES[characterVoices[character]]?.name || characterVoices[character]}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
         </div>
 
         <div className="mb-4">
-          <div className="text-sm font-medium mb-2 text-white/90">TTS Script</div>
-          <div className="flex gap-1 flex-wrap mb-3">
-            {voices.map((v) => (
-              <button key={v} onClick={() => setTtsVoice(v)} className={`px-2 py-1 rounded-md text-xs border ${ttsVoice === v ? 'bg-yellow-500/90 text-black border-yellow-300' : 'bg-white/10 hover:bg-white/20 border-white/15 text-white/90'}`}>
-                {v}
-              </button>
-            ))}
+          <div className="text-sm font-medium mb-2 text-white/90">
+            Character Script
+            <span className="ml-2 text-xs text-white/50 font-normal">
+              (Format: [NAME]:, NAME:, or **NAME:** dialogue)
+            </span>
           </div>
-          <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} rows={3} className="w-full rounded-lg bg-white/10 border border-white/15 p-3 text-sm text-white placeholder-white/50 resize-none" placeholder="Type or paste your script here…" maxLength={PLAN_LIMITS[userPlan].maxChars} />
+          <textarea 
+            value={ttsText} 
+            onChange={(e) => setTtsText(e.target.value)} 
+            rows={8} 
+            className="w-full rounded-lg bg-white/10 border border-white/15 p-3 text-sm text-white placeholder-white/50 resize-none font-mono" 
+            placeholder="[SHAWN]: Welcome to the helpdesk, how can I help you?&#10;[BRITTANY]: I can't access my email account.&#10;[SHAWN]: Let me check your account status first."
+            maxLength={PLAN_LIMITS[userPlan].maxChars} 
+          />
           <div className="flex items-center gap-2 mt-2">
-            <button onClick={generateTTS} disabled={isTtsBusy || !ttsText.trim() || ttsText.trim().length > PLAN_LIMITS[userPlan].maxChars} className="px-4 py-2 rounded-lg text-sm bg-green-500/90 hover:bg-green-500 text-black border border-green-300 font-medium disabled:opacity-60 disabled:cursor-not-allowed">
-              {isTtsBusy ? 'Generating…' : 'Generate TTS from Script'}
+            <button onClick={generateTTS} disabled={isTtsBusy || !ttsText.trim() || ttsText.trim().length > PLAN_LIMITS[userPlan].maxChars || detectedCharacters.length === 0} className="px-4 py-2 rounded-lg text-sm bg-green-500/90 hover:bg-green-500 text-black border border-green-300 font-medium disabled:opacity-60 disabled:cursor-not-allowed">
+              {isTtsBusy ? 'Generating Audio…' : 'Generate Audio'}
             </button>
             <div className="text-xs ml-auto">
               <div className={`${ttsText.trim().length > PLAN_LIMITS[userPlan].maxChars ? 'text-red-400' : 'text-white/60'}`}>
@@ -899,24 +1291,6 @@ export default function Page() {
               <div className="text-white/50 text-[10px]">{userPlan} limit</div>
             </div>
           </div>
-        </div>
-
-        <div className="mb-4">
-          <div className="text-sm font-medium mb-2 text-white/90">Or Record / Upload Audio</div>
-          <div className="flex gap-2 mb-2">
-            {!isRecording ? (
-              <button onClick={startRecord} className="px-4 py-2 rounded-lg text-sm bg-blue-500/90 hover:bg-blue-500 text-white font-medium">Record</button>
-            ) : (
-              <button onClick={stopRecord} className="px-4 py-2 bg-red-500/90 hover:bg-red-500 rounded-lg text-sm text-white font-medium">Stop</button>
-            )}
-            <label className="px-4 py-2 bg-amber-500/90 hover:bg-amber-500 rounded-lg text-sm cursor-pointer text-black font-medium">
-              Upload
-              <input type="file" accept="audio/*" className="hidden" onChange={(e) => onUploadAudio(e.target.files?.[0] ?? null)} />
-            </label>
-          </div>
-          <button onClick={transcribe} disabled={!audioUrl || isTranscribing} className={`w-full px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed ${segments.length > 0 ? 'bg-green-500/90 text-black' : isTranscribing ? 'bg-blue-500/90 text-white' : 'bg-yellow-500/90 text-black'}`}>
-            {isTranscribing ? 'Transcribing...' : segments.length > 0 ? 'Transcription Complete ✓' : 'Transcribe Audio'}
-          </button>
         </div>
 
         <div className="mb-4">
