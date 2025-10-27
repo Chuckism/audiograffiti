@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { SignInButton, SignUpButton, UserButton, useAuth, useUser } from "@clerk/nextjs";
 
 /* ============================ CONSTANTS ============================ */
 const FORMATS = {
@@ -366,9 +365,7 @@ function getUserPlan(user) {
 }
 
 export default function Page() {
-  const { isSignedIn } = useAuth();
-  const { user } = useUser();
-  const userPlan = useMemo(() => getUserPlan(user), [user]);
+  const userPlan = 'free'; // No authentication - everyone gets free plan
   const [selectedFormat, setSelectedFormat] = useState('4:3');
   const FORMAT = FORMATS[selectedFormat];
   const WIDTH = FORMAT?.width || 1280;
@@ -1183,35 +1180,11 @@ export default function Page() {
     }
   };
 
-  if (!isSignedIn) {
-    return (
-      <div className="min-h-dvh w-full bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,.9),#000)] text-white flex items-center justify-center p-4">
-        <div className="w-[900px] max-w-[95vw] rounded-2xl bg-white/5 backdrop-blur-sm shadow-2xl border border-white/10 p-8 text-center">
-          <h1 className="text-2xl font-bold mb-4">Scenaryoze</h1>
-          <p className="mb-6 opacity-80">Character-switching training videos</p>
-          <div className="space-y-3">
-            <SignInButton mode="modal">
-              <button className="w-full px-4 py-2 bg-yellow-500/90 hover:bg-yellow-500 text-black rounded-md font-medium">
-                Sign In
-              </button>
-            </SignInButton>
-            <SignUpButton mode="modal">
-              <button className="w-full px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md">
-                Sign Up
-              </button>
-            </SignUpButton>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-dvh w-full bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,.9),#000)] text-white flex items-center justify-center p-4">
       <div className="w-[900px] max-w-[95vw] rounded-2xl bg-white/5 backdrop-blur-sm shadow-2xl border border-white/10 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-xl font-bold text-white">Scenaryoze</div>
-          <UserButton />
+        <div className="mb-4">
+          <div className="text-xl font-bold text-white text-center">Scenaryoze</div>
         </div>
 
         {exportSupported === false && (
