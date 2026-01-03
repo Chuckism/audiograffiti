@@ -1,5 +1,5 @@
 {
-  "name": "audiograffiti",
+  "name": "scenaryoze",
   "version": "1.0.0",
   "private": true,
   "engines": {
@@ -13,8 +13,6 @@
     "postbuild": "echo 'Build completed successfully'"
   },
   "dependencies": {
-    "@clerk/nextjs": "^4.31.8",
-    "@stripe/stripe-js": "^7.9.0",
     "autoprefixer": "^10.4.16",
     "next": "^14.2.25",
     "openai": "^4.24.7",

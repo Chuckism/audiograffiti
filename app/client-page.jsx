@@ -1,10 +1,10 @@
 'use client';
-export const dynamic = 'force-dynamic';
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 /* ============================ CONSTANTS ============================ */
 const FORMATS = {
-  '4:3':  { width: 1280, height: 960,  name: 'Storyline (4:3)' },
+  '4:3':  { width: 1080, height: 1080,  name: 'Square (1:1)' },
 };
 
 const FPS = 30;
@@ -191,8 +191,8 @@ function loadCharacterImage(voiceName) {
 }
 function generateDefaultCharacterImage(characterName, voiceName) {
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 512;
+  canvas.width = 1080;
+  canvas.height = 1920;
   const ctx = canvas.getContext('2d');
   
   const theme = VOICE_THEMES[voiceName] || VOICE_THEMES.shawn;
@@ -366,6 +366,7 @@ function getUserPlan(user) {
 
 export default function ClientPage() {
   const userPlan = 'free'; // No authentication - everyone gets free plan
+
   const [selectedFormat, setSelectedFormat] = useState('4:3');
   const FORMAT = FORMATS[selectedFormat];
   const WIDTH = FORMAT?.width || 1280;
@@ -861,7 +862,7 @@ export default function ClientPage() {
   }
 
   // PRIMO SCENARIOS - Character-Switching Frame Renderer
-  function drawFrame(ctx, t, grad, segs, transcriptText, bars, art, artOp, plan, customText) {
+  function drawFrame(ctx, t, grad, segs, transcriptText, bars, art, artOp, plan, customText, watermarkLogo) {
     // Background gradient
     const g = ctx.createLinearGradient(0, 0, 0, HEIGHT);
     g.addColorStop(0, grad[0]);
@@ -873,13 +874,11 @@ export default function ClientPage() {
     const hasCharacters = detectedCharacters.length > 0;
     
     if (hasCharacters) {
-      // CHARACTER-SWITCHING MODE: 4:3 Split-screen layout
       const idx = segmentIndexAtTime(segs, t);
       const currentSeg = idx === -1 ? null : segs[idx];
       const speaker = currentSeg?.speaker || detectedCharacters[0];
       const characterImg = characterImages[speaker]?.img;
       
-      // 4:3 format: Left = Character, Right = Caption
       const splitX = WIDTH / 2;
       
       // Draw character image on left half
@@ -887,20 +886,27 @@ export default function ClientPage() {
         drawImageCoverRounded(ctx, characterImg, 0, 0, splitX, HEIGHT, 0, 1);
       }
       
-      // Draw caption on right half
+      // Draw caption on right half - USE FULL HEIGHT
       if (currentSeg?.text) {
         const capX = splitX;
         const capW = WIDTH - splitX;
-        const capH = HEIGHT;
-        const maxWidth = capW * 0.9;
+        
+        // NEW: Use 90% of vertical space instead of small box
+        const capTopMargin = HEIGHT * 0.05;  // 5% top margin
+        const capBottomMargin = HEIGHT * 0.05;  // 5% bottom margin
+        const capH = HEIGHT - capTopMargin - capBottomMargin;
+        const capY = capTopMargin;
+        
+        // Increased max width to use more horizontal space too
+        const maxWidth = capW * 0.85;  // Was 0.9, now 0.85 for better readability
         
         if (!capMetricsMemoRef.current) {
           capMetricsMemoRef.current = computeUniformCaptionMetrics(ctx, segs, transcriptText);
         }
         const { size: CAP_SIZE, lineHeight: CAP_LH } = capMetricsMemoRef.current;
         
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';  // Changed from 'center' - left align looks better for longer text
+        ctx.textBaseline = 'top';  // Changed from 'middle'
         ctx.font = `bold ${CAP_SIZE}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillStyle = '#fff';
         ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
@@ -908,18 +914,22 @@ export default function ClientPage() {
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 2;
         
-        const lines = wrapCaption(ctx, currentSeg.text, maxWidth).slice(0, MAX_LINES);
-        const blockH = (lines.length - 1) * CAP_LH;
-        const startY = (capH - blockH) / 2;
+        const lines = wrapCaption(ctx, currentSeg.text, maxWidth);  // Removed .slice(0, MAX_LINES) - show all lines
+        
+        // Draw from top with padding
+        const textStartY = capY + 325;  // 325px from top
         
         for (let i = 0; i < lines.length; i++) {
-          const y = startY + i * CAP_LH;
-          ctx.fillText(lines[i], capX + capW / 2, y);
+          const y = textStartY + i * CAP_LH;
+          // Left-aligned text with left margin
+          const textX = capX + (capW * 0.075);  // 7.5% left margin
+          ctx.fillText(lines[i], textX, y);
         }
         
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
       }
+    
     } else {
       // LEGACY MODE: Original AudioGraffiti layout
       const left = WIDTH * 0.06, right = WIDTH * 0.94;
@@ -973,29 +983,33 @@ export default function ClientPage() {
         }
       }
     }
-    
-    // Watermark
-    if (plan === 'free') {
-      ctx.save();
-      const wmHeight = Math.round(HEIGHT * 0.06);
-      const wmWidth = Math.round(WIDTH * 0.6);
-      const wmX = WIDTH - wmWidth - 10;
-      const wmY = HEIGHT * 0.05;
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      roundedRectFill(ctx, wmX, wmY, wmWidth, wmHeight, 8);
-      const watermarkText = 'Scenaryoze.com';
-      const fontSize = Math.round(wmHeight * 0.4);
-      ctx.font = `${fontSize}px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillStyle = '#F4D03F';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(watermarkText, wmX + wmWidth / 2, wmY + wmHeight / 2);
-      ctx.restore();
-    }
+ // Watermark - Logo image (smaller size)
+if (plan === 'free' && watermarkLogo && watermarkLogo.complete) {
+  ctx.save();
+  
+  const logoWidth = WIDTH * 0.23; // Reduced from 0.28 to 0.18 (18% of video width)
+  const logoHeight = logoWidth * 0.45; // Maintains aspect ratio
+  const logoX = WIDTH - logoWidth - 15; // 15px padding from right
+  const logoY = 15; // 15px padding from top
+  
+  ctx.drawImage(watermarkLogo, logoX, logoY, logoWidth, logoHeight);
+  
+  ctx.restore();
+}
   }
 
   async function renderWebMBlob(onProgress) {
     if (!audioUrl) throw new Error('No audio.');
+
+    // LOAD WATERMARK LOGO HERE (NEW - INSERT THIS)
+  const watermarkLogo = await new Promise((resolve) => {
+    const img = new Image();
+    img.src = '/scenaryoze-logo.png';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+  });
+
+
     const a = new Audio(audioUrl);
     a.crossOrigin = 'anonymous';
     a.preload = 'auto';
@@ -1093,7 +1107,7 @@ export default function ClientPage() {
       const slide = slideForTime(currentTime, totalDuration, artworks.map((x) => ({ img: x.img })));
       
       // Always render with 'free' plan for launch consistency
-      drawFrame(ctx, currentTime, grad, segs, transcript, b, slide, artOpacity, 'free', customBrandingText);
+      drawFrame(ctx, currentTime, grad, segs, transcript, b, slide, artOpacity, 'free', customBrandingText, watermarkLogo);
 
       const progress = Math.min(currentTime / totalDuration, 1);
       onProgress?.(Math.min(99, Math.floor(progress * 99)));

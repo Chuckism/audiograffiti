@@ -1,6 +1,6 @@
 // app/api/tts/route.js
+// Scenaryoze - Fish Audio TTS (Single Provider)
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import { spawn } from "child_process";
@@ -8,14 +8,12 @@ import path from "path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // 1 minute for multi-voice generation
+export const maxDuration = 60;
 
 /* ------------------ CONFIG ------------------ */
-const DEFAULT_MODEL = (process.env.TTS_MODEL || "tts-1").trim();
-const DEFAULT_FORMAT = "mp3"; // Use MP3 for easier concatenation
-const DEFAULT_VOICE = (process.env.TTS_DEFAULT_VOICE || "brittany").trim();
+const DEFAULT_FORMAT = "mp3";
+const DEFAULT_VOICE = "brittany";
 
-// Production-safe cache and temp directories
 const CACHE_DIR =
   (process.env.TTS_CACHE_DIR?.trim()) ||
   path.join(process.env.NODE_ENV === 'production' ? '/tmp' : process.cwd(), 
@@ -23,77 +21,80 @@ const CACHE_DIR =
 
 const TEMP_DIR = process.env.NODE_ENV === 'production' ? '/tmp' : path.join(process.cwd(), '.next', 'temp');
 
-const TTL_HOURS = Number(process.env.TTS_CACHE_TTL_HOURS || 720); // 30 days
+const TTL_HOURS = Number(process.env.TTS_CACHE_TTL_HOURS || 720);
 const TTL_MS = TTL_HOURS * 60 * 60 * 1000;
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-if (!OPENAI_API_KEY) {
-  console.error('⚠️  OPENAI_API_KEY environment variable is required');
+// Fish Audio API Configuration
+const FISH_AUDIO_API_KEY = process.env.FISH_AUDIO_API_KEY;
+if (!FISH_AUDIO_API_KEY) {
+  console.error('⚠️  FISH_AUDIO_API_KEY environment variable is required');
 }
 
-/* ------------------ CLIENT ------------------ */
-const openai = new OpenAI({ 
-  apiKey: OPENAI_API_KEY,
-  timeout: 30000,
-});
-// ElevenLabs Configuration
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
-if (!ELEVENLABS_API_KEY) {
-  console.error('⚠️  ELEVENLABS_API_KEY environment variable is required');
-}
-
-// Map character voice names to ElevenLabs voice IDs
-const ELEVENLABS_VOICE_MAP = {
-  'shawn': 'UGTtbzgh3HObxRjWaSpr',    // Brian
-  'chuck': 'tFNXkg45n3yC6nHvEn2s',    // New Chuck Voice
-  'max': 'NFG5qt843uXKj4pFvR7C',      // Adam Stone
-  'boomer': 'MZb4jD8N3GIedB0K3Xoi',   // New Boomer Voice
-  'brittany': '5l5f8iK3YPeGga21rQIX', // Adeline
-  'kaitlyn': 'ZT9u07TYPVl83ejeLakq',  // Rachel
-  'sage': '9q9xpGHwmkXdA4JI72IU',     // Kaylin
-  'randy': 'a5buv0aPWw8Gjhq3BKgi',    // Ryan
-  'coral': 'aUNOP2y8xEvi4nZebjIw'     // Nicole
+// Map character voice names to Fish Audio voice IDs
+const FISH_AUDIO_VOICE_MAP = {
+  'shawn': '536d3a5e000945adb7038665781a4aca',      // Ethan
+  'chuck': 'ccbc13d6002a46b7883f607fd8fe0516',      // Black Man
+  'max': '37a48fabcd8241ab9b69d8675fb1fe13',        // Brian
+  'boomer': 'ba24f05b17644498adb77243afd11dd9',     // Mild Manager
+  'randy': 'bf322df2096a46f18c579d0baa36f41d',      // Adrian
+  'brittany': '2a9605eeafe84974b5b20628d42c0060',   // Female Voice
+  'kaitlyn': 'da8ae28bb18d4a1ca55eccf096f4c8da',    // Black Woman
+  'sage': '933563129e564b19a115bedd57b7406a',       // Sarah
+  'coral': 'e107ce68d2a64e928c3a674781ce9d56'       // Upbeat Woman
 };
 
-/* ------------------ ELEVENLABS TTS ------------------ */
-async function generateElevenLabsTTS(text, voiceId) {
-  const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+const PLAN_LIMITS = {
+  free: { maxChars: 50000, displayName: 'Free' },
+  pro: { maxChars: 50000, displayName: 'Pro' }
+};
+
+/* ------------------ CHARACTER TAG STRIPPING ------------------ */
+function stripCharacterTags(text) {
+  // Remove character tags like [SHAWN]:, **BRITTANY:**, etc.
+  // This allows Fish Audio to see emotion tags at the beginning of the sentence
+  return text.replace(/^\s*\*?\*?\[?[A-Z][A-Z\s\-]*\]?\*?\*?:\s*/i, '').trim();
+}
+
+/* ------------------ FISH AUDIO TTS ------------------ */
+async function generateFishAudioTTS(text, voiceId) {
+  // Strip character tags before sending to Fish Audio
+  const cleanText = stripCharacterTags(text);
+  
+  console.log(`Calling Fish Audio API with voice ${voiceId}`);
+  console.log(`Original text: "${text.substring(0, 100)}..."`);
+  console.log(`Cleaned text: "${cleanText.substring(0, 100)}..."`);
+  
+  const url = 'https://api.fish.audio/v1/tts';
   
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Accept': 'audio/mpeg',
+      'Authorization': `Bearer ${FISH_AUDIO_API_KEY}`,
       'Content-Type': 'application/json',
-      'xi-api-key': ELEVENLABS_API_KEY
     },
     body: JSON.stringify({
-      text: text,
-      model_id: 'eleven_multilingual_v2',
-      voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75
-      }
+      text: cleanText,       // Send cleaned text WITHOUT character tags
+      reference_id: voiceId,
+      model: 's1',           // Use Fish Audio S1 for emotion support
+      format: 'mp3',
+      normalize: false,      // CRITICAL: Preserve emotion tags!
+      latency: 'normal'
     })
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
+    console.error(`Fish Audio API error: ${response.status} - ${errorText}`);
+    throw new Error(`Fish Audio API error: ${response.status}`);
   }
 
-  return Buffer.from(await response.arrayBuffer());
+  const audioBuffer = Buffer.from(await response.arrayBuffer());
+  console.log(`Fish Audio generated ${audioBuffer.length} bytes`);
+  
+  return audioBuffer;
 }
 
 /* ------------------ UTILS ------------------ */
-function mimeFrom(format) {
-  switch ((format || "").toLowerCase()) {
-    case "mp3": return "audio/mpeg";
-    case "wav": return "audio/wav";
-    case "ogg": return "audio/ogg";
-    default:    return "application/octet-stream";
-  }
-}
-
 function normalizeSpaces(s) {
   return String(s || "").replace(/\s+/g, " ").trim();
 }
@@ -109,7 +110,10 @@ function shardPath(root, hash, ext) {
 }
 
 function generateTempId() {
-  return createHash('md5').update(Date.now() + Math.random().toString()).digest('hex').slice(0, 12);
+  return createHash('md5')
+    .update(Date.now() + Math.random().toString())
+    .digest('hex')
+    .slice(0, 12);
 }
 
 async function ensureDir(dir) {
@@ -160,10 +164,6 @@ function validateUserPlan(plan) {
   return 'free';
 }
 
-function getModelForPlan(plan) {
-  return plan === 'pro' ? 'tts-1-hd' : DEFAULT_MODEL;
-}
-
 /* ------------------ VALIDATION ------------------ */
 function validateTTSRequest(payload) {
   const errors = [];
@@ -172,11 +172,9 @@ function validateTTSRequest(payload) {
     errors.push('Request body must be a JSON object');
   }
   
-  // Check if this is multi-voice request
   const hasSegments = Array.isArray(payload.segments);
   
   if (hasSegments) {
-    // Multi-voice validation
     if (payload.segments.length === 0) {
       errors.push('Segments array cannot be empty');
     }
@@ -196,14 +194,13 @@ function validateTTSRequest(payload) {
         break;
       }
       
-      // Check each segment individually (OpenAI limit is 4096 per request)
       if (normalized.length > 4096) {
         errors.push(`Segment text exceeds 4096 characters`);
         break;
       }
       
       const voice = (segment.voice || DEFAULT_VOICE).trim();
-      const validVoices = ['shawn', 'chuck', 'max', 'boomer', 'brittany', 'kaitlyn', 'sage', 'randy', 'coral'];
+      const validVoices = Object.keys(FISH_AUDIO_VOICE_MAP);
       if (!validVoices.includes(voice)) {
         errors.push(`Invalid voice in segment: ${voice}. Must be one of: ${validVoices.join(', ')}`);
         break;
@@ -212,7 +209,6 @@ function validateTTSRequest(payload) {
     
     return { errors, isMultiVoice: true, segments: payload.segments };
   } else {
-    // Single voice validation (backward compatible)
     const text = normalizeSpaces(payload.text || '');
     if (!text) {
       errors.push('Text parameter is required and cannot be empty');
@@ -223,21 +219,21 @@ function validateTTSRequest(payload) {
     }
     
     const voice = (payload.voice || DEFAULT_VOICE).trim();
-    const validVoices = ['shawn', 'chuck', 'max', 'boomer', 'brittany', 'kaitlyn', 'sage', 'randy', 'coral'];
+    const validVoices = Object.keys(FISH_AUDIO_VOICE_MAP);
     if (!validVoices.includes(voice)) {
       errors.push(`Voice must be one of: ${validVoices.join(', ')}`);
     }
     
     const format = (payload.format || DEFAULT_FORMAT).toLowerCase();
-    if (!['mp3', 'wav', 'ogg'].includes(format)) {
-      errors.push('Format must be one of: mp3, wav, ogg');
+    if (!['mp3'].includes(format)) {
+      errors.push('Format must be mp3');
     }
     
     return { errors, isMultiVoice: false, text, voice, format };
   }
 }
 
-/* ------------------ SILENCE GENERATION (NEW) ------------------ */
+/* ------------------ SILENCE GENERATION ------------------ */
 async function generateSilenceFile(outputPath, durationSeconds) {
   const ffmpegPath = findFFmpegPath();
   
@@ -261,71 +257,26 @@ async function generateSilenceFile(outputPath, durationSeconds) {
 
     ffmpeg.on('close', (code) => {
       const success = code === 0;
-      
       if (success) {
         console.log(`Generated ${durationSeconds}s silence file`);
       } else {
         console.error('Silence generation failed:', stderr.slice(-500));
       }
-
       resolve({ success, stderr: stderr.slice(-500) });
     });
 
     ffmpeg.on('error', (error) => {
       console.error('FFmpeg spawn error during silence generation:', error);
-      resolve({
-        success: false,
-        stderr: `Spawn error: ${error.message}`,
-      });
+      resolve({ success: false, stderr: `Spawn error: ${error.message}` });
     });
   });
 }
 
-/* ------------------ GET AUDIO DURATION ------------------ */
-async function getAudioDuration(filePath) {
-  const ffprobePath = process.env.NODE_ENV === 'production' ? 'ffprobe' : 'ffprobe';
-  
-  return new Promise((resolve, reject) => {
-    const ffprobe = spawn(ffprobePath, [
-      '-v', 'error',
-      '-show_entries', 'format=duration',
-      '-of', 'default=noprint_wrappers=1:nokey=1',
-      filePath
-    ]);
-
-    let stdout = '';
-    let stderr = '';
-
-    ffprobe.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    ffprobe.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    ffprobe.on('close', (code) => {
-      if (code === 0) {
-        const duration = parseFloat(stdout.trim());
-        resolve(isNaN(duration) ? 0 : duration);
-      } else {
-        console.warn('ffprobe error:', stderr);
-        resolve(0); // Return 0 on error rather than failing
-      }
-    });
-
-    ffprobe.on('error', (error) => {
-      console.warn('ffprobe spawn error:', error);
-      resolve(0);
-    });
-  });
-}
-/* ------------------ FFMPEG AUDIO CONCATENATION ------------------ */
+/* ------------------ AUDIO CONCATENATION ------------------ */
 async function concatenateAudioFiles(inputFiles, outputPath) {
   const ffmpegPath = findFFmpegPath();
   
   return new Promise((resolve) => {
-    // Create concat filter
     const inputs = [];
     const filterComplex = [];
     
@@ -365,24 +316,18 @@ async function concatenateAudioFiles(inputFiles, outputPath) {
         console.error('FFmpeg stderr:', stderr.slice(-500));
       }
 
-      resolve({
-        success,
-        stderr: stderr.slice(-500),
-      });
+      resolve({ success, stderr: stderr.slice(-500) });
     });
 
     ffmpeg.on('error', (error) => {
       console.error('FFmpeg spawn error:', error);
-      resolve({
-        success: false,
-        stderr: `Spawn error: ${error.message}`,
-      });
+      resolve({ success: false, stderr: `Spawn error: ${error.message}` });
     });
   });
 }
 
-/* ------------------ MULTI-VOICE GENERATION (UPDATED) ------------------ */
-async function generateMultiVoiceAudio(segments, model) {
+/* ------------------ MULTI-VOICE GENERATION ------------------ */
+async function generateMultiVoiceAudio(segments) {
   const tempId = generateTempId();
   await ensureDir(TEMP_DIR);
   
@@ -390,15 +335,9 @@ async function generateMultiVoiceAudio(segments, model) {
   const outputPath = path.join(TEMP_DIR, `multivoice_${tempId}.mp3`);
   
   try {
-    // Generate TTS for each segment
-    console.log(`Generating ${segments.length} voice segments`);
+    console.log(`Generating ${segments.length} voice segments with Fish Audio`);
     
-    
-    // Track timing for each speaker segment
-    const speakerTimings = [];
-    let cumulativeTime = 0;
-    
-    // Add 0.2s silence at the very start to prevent initial audio "tick"
+    // Add 0.2s initial silence to prevent audio click
     const initialSilenceFile = path.join(TEMP_DIR, `initial_silence_${tempId}.mp3`);
     const initialSilenceResult = await generateSilenceFile(initialSilenceFile, 0.2);
     
@@ -406,41 +345,38 @@ async function generateMultiVoiceAudio(segments, model) {
       tempFiles.push(initialSilenceFile);
       console.log('Added 0.2s initial silence to prevent audio tick');
     }
-      cumulativeTime += 0.2; // Track initial silence
     
-    
-    let lastVoice = null; // Track previous voice for pause detection
+    let lastVoice = null;
     
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i];
       const text = normalizeSpaces(segment.text);
       const voice = (segment.voice || DEFAULT_VOICE).trim();
       
-      // ✅ NEW: Add 1.0s pause when voice changes (except first segment)
+      // Add 1.0s pause when voice changes
       if (i > 0 && lastVoice && lastVoice !== voice) {
-        console.log(`Adding 1.0s pause between ${lastVoice} and ${voice}`);
+        console.log(`Adding 0.3s pause between ${lastVoice} and ${voice}`);
         
         const pauseFile = path.join(TEMP_DIR, `pause_${tempId}_${i}.mp3`);
-        const pauseResult = await generateSilenceFile(pauseFile, 1.0);
+        const pauseResult = await generateSilenceFile(pauseFile, 0.3);
         
         if (pauseResult.success) {
           tempFiles.push(pauseFile);
-          cumulativeTime += 1.0; // Track pause between speakers
         } else {
           console.warn('Failed to generate pause, continuing without it');
         }
       }
       
-      // Map voice name to ElevenLabs voice ID
-      const voiceId = ELEVENLABS_VOICE_MAP[voice.toLowerCase()];
+      // Map voice name to Fish Audio voice ID
+      const voiceId = FISH_AUDIO_VOICE_MAP[voice.toLowerCase()];
       if (!voiceId) {
-        throw new Error(`Unknown voice: ${voice}. Valid voices: ${Object.keys(ELEVENLABS_VOICE_MAP).join(', ')}`);
+        throw new Error(`Unknown voice: ${voice}. Valid voices: ${Object.keys(FISH_AUDIO_VOICE_MAP).join(', ')}`);
       }
       
-      console.log(`Segment ${i + 1}/${segments.length}: ${voice} (${voiceId}) - "${text.substring(0, 30)}..."`);
+      console.log(`Segment ${i + 1}/${segments.length}: ${voice} - "${text.substring(0, 50)}..."`);
       
-      // Generate TTS using ElevenLabs
-      const audio = await generateElevenLabsTTS(text, voiceId);
+      // Generate TTS using Fish Audio - text includes emotion tags
+      const audio = await generateFishAudioTTS(text, voiceId);
       
       if (audio.length < 100) {
         throw new Error(`Segment ${i + 1} generated suspiciously small audio`);
@@ -452,11 +388,11 @@ async function generateMultiVoiceAudio(segments, model) {
       
       console.log(`Segment ${i + 1} generated: ${audio.length} bytes`);
       
-      lastVoice = voice; // Track for next iteration
+      lastVoice = voice;
     }
     
-    // Concatenate all segments (including pauses)
-    console.log(`Concatenating ${tempFiles.length} files (${segments.length} segments + pauses)`);
+    // Concatenate all segments
+    console.log(`Concatenating ${tempFiles.length} files`);
     const concatResult = await concatenateAudioFiles(tempFiles, outputPath);
     
     if (!concatResult.success) {
@@ -472,7 +408,7 @@ async function generateMultiVoiceAudio(segments, model) {
     
     console.log(`Multi-voice audio generated successfully: ${finalAudio.length} bytes`);
     
-    return { audio: finalAudio, timings: speakerTimings };
+    return { audio: finalAudio };
     
   } finally {
     // Cleanup temp files
@@ -483,9 +419,9 @@ async function generateMultiVoiceAudio(segments, model) {
   }
 }
 
-/* ------------------ SINGLE VOICE GENERATION (ORIGINAL) ------------------ */
-async function generateSingleVoiceAudio(text, voice, format, model, bypass, userId) {
-  const key = sha256([userId, model, voice, format, text].join(":"));
+/* ------------------ SINGLE VOICE GENERATION ------------------ */
+async function generateSingleVoiceAudio(text, voice, format, bypass, userId) {
+  const key = sha256([userId, voice, format, text].join(":"));
   const filePath = shardPath(CACHE_DIR, key, format);
 
   // Try cache first (unless bypassed)
@@ -497,17 +433,15 @@ async function generateSingleVoiceAudio(text, voice, format, model, bypass, user
     }
   }
 
-  // Generate TTS
-  console.log(`Generating single-voice TTS using ${model}`);
+  // Generate TTS with Fish Audio
+  console.log(`Generating single-voice TTS with Fish Audio`);
   
-  const response = await openai.audio.speech.create({
-    model,
-    voice: voice,
-    input: text,
-    response_format: format,
-  });
-
-  const audio = Buffer.from(await response.arrayBuffer());
+  const voiceId = FISH_AUDIO_VOICE_MAP[voice];
+  if (!voiceId) {
+    throw new Error(`Unknown voice: ${voice}`);
+  }
+  
+  const audio = await generateFishAudioTTS(text, voiceId);
 
   if (audio.length < 100) {
     throw new Error('Generated audio file is suspiciously small');
@@ -519,21 +453,19 @@ async function generateSingleVoiceAudio(text, voice, format, model, bypass, user
   return { audio, cached: false };
 }
 
-/* ------------------ HANDLER ------------------ */
+/* ------------------ MAIN HANDLER ------------------ */
 export async function POST(req) {
   const startTime = Date.now();
   
   try {
-    // Environment check
-    if (!OPENAI_API_KEY) {
-      console.error('TTS API called without OpenAI API key configured');
+    if (!FISH_AUDIO_API_KEY) {
+      console.error('TTS API called without Fish Audio API key configured');
       return NextResponse.json(
         { error: "TTS service is not properly configured" },
         { status: 500 }
       );
     }
 
-    // Parse and validate request
     let payload;
     try {
       payload = await req.json();
@@ -552,10 +484,8 @@ export async function POST(req) {
       );
     }
 
-    // Extract user identification and plan
     const userId = (payload.userId || req.headers.get("x-user-id") || "anon").toString();
     const userPlan = validateUserPlan(payload.userPlan);
-    const model = getModelForPlan(userPlan);
     
     const bypass =
       !!payload.bypassCache ||
@@ -563,24 +493,19 @@ export async function POST(req) {
       req.headers.get("x-bypass-cache") === "1";
 
     let audio;
-    let speakerTimings = null;
     let cached = false;
     const format = validation.isMultiVoice ? 'mp3' : (validation.format || DEFAULT_FORMAT);
 
     if (validation.isMultiVoice) {
-      // MULTI-VOICE MODE
       console.log(`Multi-voice TTS request: ${validation.segments.length} segments`);
-      const result = await generateMultiVoiceAudio(validation.segments, model);
+      const result = await generateMultiVoiceAudio(validation.segments);
       audio = result.audio;
-      speakerTimings = result.timings; // Capture timing data
-      cached = false; // Multi-voice not cached (for now)
+      cached = false;
     } else {
-      // SINGLE VOICE MODE (backward compatible)
       const result = await generateSingleVoiceAudio(
         validation.text,
         validation.voice,
         format,
-        model,
         bypass,
         userId
       );
@@ -589,19 +514,18 @@ export async function POST(req) {
     }
 
     const generationTime = Date.now() - startTime;
-    console.log(`TTS completed: ${audio.length} bytes in ${generationTime}ms (${userPlan}/${model})`);
+    console.log(`TTS completed: ${audio.length} bytes in ${generationTime}ms (${userPlan})`);
 
     return new NextResponse(audio, {
       status: 200,
       headers: {
-        "Content-Type": mimeFrom(format),
+        "Content-Type": "audio/mpeg",
         "Cache-Control": "public, max-age=3600",
         "X-Cache-Hit": cached ? "1" : "0",
-        "X-TTS-Model": model,
+        "X-TTS-Provider": "fish-audio",
         "X-User-Plan": userPlan,
         "X-Generation-Time": generationTime.toString(),
         "X-Multi-Voice": validation.isMultiVoice ? "1" : "0",
-        ...(speakerTimings ? { "X-Speaker-Timings": JSON.stringify(speakerTimings) } : {}),
       },
     });
 
