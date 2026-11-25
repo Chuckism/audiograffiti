@@ -4,7 +4,7 @@ AudioGraffiti is a mobile-first thought capture tool with a synchronized desktop
 
 **Capture a thought now. Find it when you're ready. Give it time if it needs it.**
 
-A thought is not an unfinished task. It can stay a thought indefinitely. “Follow up on this idea tomorrow” places a purple thought on the calendar without converting it into a green to-do. Type, icon, and label accompany the color.
+A thought is not an unfinished task. It can stay a thought indefinitely. Thoughts are purple until a follow-up date and time is applied, then amber. Removing the follow-up returns them to purple. The original capture timestamp does not affect their color. “Follow up on this idea tomorrow” places the thought on the calendar without converting it into a green to-do. Type, icon, and label accompany the color.
 
 There are two calendars:
 - **Thoughts & To-dos:** time to revisit an idea or work on an action.

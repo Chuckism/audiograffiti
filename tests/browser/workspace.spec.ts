@@ -146,3 +146,40 @@ test('a blocked old storage connection never silently loses typed text',async({p
   await page.getByRole('button',{name:'Save thought',exact:true}).click();
   await expect(page.locator('.saved-confirmation')).toContainText('Do not lose this interrupted thought');
 });
+
+test('voice transcription appears after stopping, survives reload, and retains playable audio',async({page,isMobile,context})=>{
+  let posts=0;let finish!:()=>void;
+  const processing=new Promise<void>(resolve=>{finish=resolve;});
+  await page.route('**/api/local/transcription',async route=>{
+    if(route.request().method()==='GET'){await route.fulfill({json:{available:true}});return;}
+    posts++;await processing;await route.fulfill({json:{text:'Remember the community reading room idea.'}});
+  });
+  await context.grantPermissions(['microphone']);await page.goto('/');
+  const nav=page.getByRole('navigation',{name:isMobile?'Mobile navigation':'Main navigation'});
+  await nav.getByRole('button',{name:'Capture',exact:true}).click();
+  await page.getByRole('button',{name:'Tap to speak',exact:true}).click();
+  await expect(page.getByRole('button',{name:/Save my thought/})).toBeVisible();await page.waitForTimeout(1200);
+  await page.getByRole('button',{name:/Save my thought/}).click();
+  await expect(page.locator('.voice-transcript')).toContainText('Transcribing your thought');finish();
+  await expect(page.locator('.voice-transcript')).toContainText('Remember the community reading room idea.');
+  await page.reload();await nav.getByRole('button',{name:'Saved',exact:true}).click();
+  await page.getByRole('button',{name:'Remember the community reading room idea.',exact:true}).click();
+  await page.getByRole('button',{name:'Listen to original',exact:true}).click();
+  await expect(page.locator('audio')).toBeVisible();expect(posts).toBe(1);
+});
+
+test('failed voice transcription keeps the recording and can be retried from Today',async({page,isMobile,context})=>{
+  let posts=0;
+  await page.route('**/api/local/transcription',async route=>{
+    if(route.request().method()==='GET'){await route.fulfill({json:{available:true}});return;}
+    posts++;await route.fulfill(posts===1?{status:502,json:{error:'Temporary transcription outage. Your audio is saved.'}}:{json:{text:'A recovered spoken thought.'}});
+  });
+  await context.grantPermissions(['microphone']);await page.goto('/');
+  const nav=page.getByRole('navigation',{name:isMobile?'Mobile navigation':'Main navigation'});
+  await nav.getByRole('button',{name:'Capture',exact:true}).click();await page.getByRole('button',{name:'Tap to speak',exact:true}).click();
+  await expect(page.getByRole('button',{name:/Save my thought/})).toBeVisible();await page.waitForTimeout(1200);
+  await page.getByRole('button',{name:/Save my thought/}).click();
+  await expect(page.locator('.voice-transcript')).toContainText('Temporary transcription outage');
+  await nav.getByRole('button',{name:'Today',exact:true}).click();await page.getByRole('button',{name:'Retry transcription',exact:true}).click();
+  await expect(page.getByRole('button',{name:'A recovered spoken thought.',exact:true})).toBeVisible();expect(posts).toBe(2);
+});

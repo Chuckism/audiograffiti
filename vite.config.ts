@@ -1,8 +1,9 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { localTranscription } from './server/localTranscription';
 export default defineConfig({
-  plugins: [react(), VitePWA({
+  plugins: [react(), localTranscription(), VitePWA({
     registerType: 'prompt',
     includeAssets: ['thoughtsplat-mark.svg', 'icon.svg', 'icon-192.png', 'icon-512.png'],
     manifest: {

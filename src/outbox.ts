@@ -9,6 +9,7 @@ export interface OutboxEntry {
   id: string; uid: string; source: 'voice' | 'text'; text: string; blob?: Blob; mimeType: string;
   createdAt: number; updatedAt: number; timezone: string;
   phase: 'recording' | 'queued'; attempts: number; nextAttemptAt: number; error?: string; reviewedAt?: number;
+  transcription?: 'transcribing' | 'ready' | 'failed'; transcriptionError?: string; transcriptionStartedAt?: number;
 }
 export interface DraftItem extends Item { uid: string; error?: string; }
 export const DEVICE_OWNER = 'device-drafts';
@@ -50,6 +51,17 @@ export async function localEntries(uid: string): Promise<OutboxEntry[]> {
 export async function removeLocal(id: string) {
   const databaseInstance = await database();
   await databaseInstance.delete('captures',id); changed();
+}
+// Update the current record atomically so transcription cannot resurrect a
+// discarded recording or overwrite a concurrent review/account import.
+export async function updateDeviceCapture(id: string, update: (entry: OutboxEntry) => OutboxEntry | null) {
+  const tx = (await database()).transaction('captures','readwrite');
+  const entry = await tx.store.get(id) as OutboxEntry | undefined;
+  const next = entry?.uid === DEVICE_OWNER ? update(entry) : null;
+  if (next) await tx.store.put(next);
+  await tx.done;
+  if (next) changed();
+  return next;
 }
 export async function draftItems(uid = DEVICE_OWNER): Promise<DraftItem[]> {
   return (await (await database()).getAll('draft-items')).filter((item: DraftItem) => item.uid === uid);
@@ -118,7 +130,7 @@ export async function syncOutbox(uid: string) {
         if (auth.currentUser?.uid !== uid) break;
         if (!remote.exists()) {
           const data: Omit<Capture,'id'> = {
-            source:entry.source,text:entry.text,mimeType:entry.mimeType,
+            source:entry.source,text:entry.source === 'voice' ? '' : entry.text,mimeType:entry.mimeType,
             createdAt:entry.createdAt,updatedAt:Date.now(),timezone:entry.timezone,
             status:entry.source === 'voice' ? 'uploading' : 'queued'
           };

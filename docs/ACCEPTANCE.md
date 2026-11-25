@@ -2,7 +2,7 @@
 
 ## Automated coverage
 
-Last verified November 25, 2026: 16 unit tests, 16 browser tests across desktop and phone viewports, and 8 emulator tests passed. The client production build and server TypeScript build also passed. Cloud processing tests use stubbed AI responses; the deployed physical-device scenario below remains outstanding.
+Verified November 25, 2026: 23 unit tests and 20 browser tests across desktop and phone viewports passed for local transcription. Eight emulator tests and the server TypeScript build passed for the preceding cloud implementation. The client production build passed. A synthetic spoken sentence also passed through the real local transcription endpoint and OpenAI API. Cloud processing tests use stubbed AI responses; the deployed physical-device scenario below remains outstanding. The final voice-card color and label adjustment followed these checks; a separate visual check could not run because automatic approval review hit a usage limit.
 
 Unit tests exercise:
 - A thought remains a thought after a follow-up is scheduled.
@@ -24,6 +24,8 @@ Browser tests cover phone and desktop layouts:
 - Suggestions require approval; original thoughts remain available.
 - Installed static shell can reopen offline.
 - A new workspace starts empty; typed thoughts appear immediately and survive reloading.
+- Voice transcription appears after recording stops, survives reload, and preserves playable original audio.
+- Failed transcription retains audio and can be retried from Today.
 - Follow-ups persist without converting thoughts to tasks.
 - Recorded audio survives reloading and remains downloadable from the collapsible device queue.
 - Denied microphone access leaves typing available.
@@ -49,7 +51,7 @@ Do not mark this gate passed solely from demo/browser tests. Use a dedicated dep
 3. Include one offline capture and interrupted upload. Reopen/reconnect; verify local state remains until acknowledgement.
 4. Close the phone app after acknowledged upload. Confirm server work continues.
 5. Open desktop. Verify all three originals and processing statuses, summaries and context-linked proposals.
-6. Keep an idea as a thought. Approve its follow-up. Confirm it stays purple in Thoughts & To-dos.
+6. Keep an idea as a thought. Approve its follow-up. Confirm it turns amber in Thoughts & To-dos while remaining a thought; removing the time returns it to purple.
 7. Confirm proposed changes are not commitments until approved, including collective approval.
 8. Edit on a second device. Confirm stale approval does not overwrite it.
 9. Confirm another account cannot read recordings, transcripts, tasks, projects or recommendations.

@@ -60,8 +60,9 @@ describe('durable capture outbox',()=>{
     expect(await localEntries('alice')).toHaveLength(0);expect(setDoc).toHaveBeenCalledTimes(1);
   });
   it('retains audio when the upload acknowledgement is lost, then avoids reuploading it',async()=>{
-    await saveLocal({...newEntry('alice','voice'),mimeType:'audio/webm',blob:new Blob(['audio'])});state.loseAudioAck=true;
+    await saveLocal({...newEntry('alice','voice'),text:'A local preview transcript',mimeType:'audio/webm',blob:new Blob(['audio'])});state.loseAudioAck=true;
     await syncOutbox('alice');const [retry]=await localEntries('alice');expect(retry.blob?.size).toBe(5);
+    expect([...state.documents.values()][0]).toMatchObject({source:'voice',text:'',status:'uploading'});
     await retryLocal(retry);await syncOutbox('alice');
     expect(uploadBytesResumable).toHaveBeenCalledTimes(1);expect(await localEntries('alice')).toHaveLength(0);
   });

@@ -4,7 +4,8 @@ import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
 import { applyProposal, overlaps, validateItem, type Capture, type Item, type Proposal } from '../functions/src/domain';
 import { exampleWorkspace } from './demo';
-import { DEVICE_OWNER, draftItems, localEntries, removeDraftItem, saveDraftItem, saveLocal } from './outbox';
+import { DEVICE_OWNER, draftItems, localEntries, removeDraftItem, saveDraftItem, updateDeviceCapture } from './outbox';
+import { retryDeviceTranscription, transcribeDeviceRecordings } from './localTranscription';
 
 export function useWorkspace(uid: string | null, demo: boolean, deviceOnly = false) {
   const [items,setItems] = useState<Item[]>([]);
@@ -27,12 +28,14 @@ export function useWorkspace(uid: string | null, demo: boolean, deviceOnly = fal
           const [drafts, originals] = await Promise.all([draftItems(), localEntries(DEVICE_OWNER)]);
           if (!active) return;
           setItems(drafts);
-          setCaptures(originals.map(entry => ({id:entry.id,source:entry.source,text:entry.text,mimeType:entry.mimeType,createdAt:entry.createdAt,updatedAt:entry.updatedAt,timezone:entry.timezone,status:'queued',localOnly:true,reviewedAt:entry.reviewedAt})));
+          setCaptures(originals.map(entry => ({id:entry.id,source:entry.source,text:entry.text,mimeType:entry.mimeType,createdAt:entry.createdAt,updatedAt:entry.updatedAt,timezone:entry.timezone,status:entry.text?'ready':entry.transcription==='transcribing'?'transcribing':entry.transcription==='failed'?'failed':'queued',error:entry.transcriptionError,localOnly:true,reviewedAt:entry.reviewedAt})));
           setLoading(false);
         } catch {if(active){setError('Device storage is unavailable. Your thought has not been saved.');setLoading(false);}}
       };
-      void refresh(); window.addEventListener('outbox-change',refresh);
-      return () => {active=false;window.removeEventListener('outbox-change',refresh);};
+      const changed = () => {void refresh();void transcribeDeviceRecordings().catch(()=>{});};
+      changed(); window.addEventListener('outbox-change',changed);window.addEventListener('online',changed);
+      const timer = setInterval(changed,15000);
+      return () => {active=false;clearInterval(timer);window.removeEventListener('outbox-change',changed);window.removeEventListener('online',changed);};
     }
     if (!uid || !db) {setLoading(false);return;}
     setLoading(true);
@@ -83,7 +86,7 @@ export function useWorkspace(uid: string | null, demo: boolean, deviceOnly = fal
   }
   async function markReviewed() {
     if (deviceOnly) {
-      for (const entry of await localEntries(DEVICE_OWNER)) await saveLocal({...entry,reviewedAt:Date.now()});
+      for (const entry of await localEntries(DEVICE_OWNER)) await updateDeviceCapture(entry.id,current=>({...current,reviewedAt:Date.now()}));
       return;
     }
     const unread = captures.filter(c => !c.reviewedAt && c.status === 'ready');
@@ -101,5 +104,5 @@ export function useWorkspace(uid: string | null, demo: boolean, deviceOnly = fal
     setCaptures(old => [{id:crypto.randomUUID(),source:'text',text,mimeType:'',createdAt:Date.now(),updatedAt:Date.now(),timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,status:'ready',summary:'Example thought · AI processing is available in a connected workspace.'},...old]);
   }
   return {items,captures,proposals,error,loading,save,remove,review,markReviewed,addDemoCapture,
-    retry:(id:string) => call('retryCapture',{id}),loadMore:() => setCaptureLimit(n => n+100),hasMore:captures.length >= captureLimit};
+    retry:(id:string) => deviceOnly ? retryDeviceTranscription(id) : call('retryCapture',{id}),loadMore:() => setCaptureLimit(n => n+100),hasMore:captures.length >= captureLimit};
 }

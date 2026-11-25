@@ -2,7 +2,7 @@
 
 **Speak your thoughts. Organize your day.**
 
-A simple, mobile-first home for thoughts and to-dos. A thought can remain a thought, including when you give it a follow-up time. Purple thoughts, green to-dos, and blue events have labels and icons as well as color.
+A simple, mobile-first home for thoughts and to-dos. A thought can remain a thought, including when you give it a follow-up time. Thoughts are purple until a follow-up time is set, then amber. Removing that time returns them to purple. To-dos are green and events blue, with labels and icons as well as color.
 
 - **Capture:** one-tap voice recording, or type/paste without categorizing.
 - **Today:** review original thoughts and suggestions at your own pace.
@@ -23,7 +23,9 @@ cd ..
 npm run dev
 ```
 
-Without Firebase configuration, the app opens an **empty device workspace**. Your own text, recordings, thoughts, to-dos, and calendar drafts persist in IndexedDB across reloads. They are explicitly marked as device-only and are not cloud-synced or AI-processed. After cloud setup and sign-in, use **Move drafts to my workspace** to bind them to that account. Originals upload first; project/item drafts follow. Copies remain until the server acknowledges them, with failed imports available for retry or download.
+Without Firebase configuration, the app opens an **empty device workspace**. Your own text, recordings, thoughts, to-dos, and calendar drafts persist in IndexedDB across reloads. They are explicitly marked as device-only and are not cloud-synced or automatically organized. After cloud setup and sign-in, use **Move drafts to my workspace** to bind them to that account. Originals upload first; project/item drafts follow. Copies remain until the server acknowledges them, with failed imports available for retry or download.
+
+For voice-to-text in the local development preview, set the server-only `OPENAI_API_KEY` in `.env.local` and run `npm run dev`. The local Node endpoint sends audio to OpenAI for transcription, keeps the key out of the browser, and accepts only requests from the loopback preview. After stopping a recording, its transcript appears in Capture, Today, and Saved; audio and text remain on this device. Previously saved recordings are picked up when the app reopens. Failed transcription retains the audio and offers Retry. This local helper does not provide cloud sync or organizational suggestions, and is not included in static hosting or `npm run preview`; production uses the Firebase worker.
 
 The optional ?demo=1 URL opens the separate illustrative workspace used by browser tests. Its sample planning changes reset on refresh. It is no longer the default. ThoughtSplat is the current preview wordmark; the repository and cloud identifiers remain AudioGraffiti.
 

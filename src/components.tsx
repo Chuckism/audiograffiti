@@ -4,10 +4,12 @@ import { emailLogin, loginWithGoogle, resetPassword } from './services/authServi
 import { configured } from './firebase';
 import { DEVICE_OWNER, draftItems, localEntries, newEntry, removeDraftItem, removeLocal, retryLocal, saveLocal, syncOutbox, type DraftItem, type OutboxEntry } from './outbox';
 import { useRecorder } from './useRecorder';
+import { localTranscriptionAvailable, retryDeviceTranscription } from './localTranscription';
 import type { Capture, Item, ItemKind } from '../functions/src/domain';
 
 export const kindLabel = (kind: string) => ({idea:'Thought',task:'To-do',event:'Event',note:'Note',project:'Project'}[kind] || kind);
 export const kindIcon = (kind: string) => kind === 'idea' ? Lightbulb : kind === 'task' ? Check : kind === 'event' ? CalendarDays : kind === 'project' ? Folder : FileText;
+export const itemColorClass = (kind: string, startsAt?: number | null) => kind + (kind === 'idea' && startsAt != null ? ' scheduled-thought' : '');
 export const friendlyError = (error: unknown) => (error as Error)?.message?.replace(/^Firebase: /,'').replace(/\s*\(auth\/[^)]+\)\.?/,'') || 'Something went wrong. Please try again.';
 export function dateKey(date: Date) {
   return date.getFullYear() + '-' + String(date.getMonth()+1).padStart(2,'0') + '-' + String(date.getDate()).padStart(2,'0');
@@ -17,7 +19,7 @@ export function dateLabel(time: number) { return new Date(time).toLocaleDateStri
 export function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob); const link = document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(() => URL.revokeObjectURL(url),30000);
 }
-export function Badge({kind}: {kind: string}) { const Icon = kindIcon(kind);return <span className={'badge ' + kind}><Icon size={13}/>{kindLabel(kind)}</span>; }
+export function Badge({kind,startsAt}: {kind: string;startsAt?: number | null}) { const Icon = kindIcon(kind);return <span className={'badge ' + itemColorClass(kind,startsAt)}><Icon size={13}/>{kindLabel(kind)}</span>; }
 export function Empty({children,icon}: {children:ReactNode;icon?:ReactNode}) {return <div className="empty">{icon}<p>{children}</p></div>;}
 export function Modal({title,children,onClose}: {title:string;children:ReactNode;onClose:()=>void}) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -93,7 +95,7 @@ export function ItemEditor({initial,projects,onSave,onDelete,onClose}: {
 }
 export function ItemCard({item,onEdit,onToggle}: {item:Item;onEdit:()=>void;onToggle?:()=>void}) {
   const Icon = kindIcon(item.kind);
-  return <article className={'item-card '+item.kind+(item.state==='done'?' completed':'')}>
+  return <article className={'item-card '+itemColorClass(item.kind,item.startsAt)+(item.state==='done'?' completed':'')}>
     {item.kind==='task' && onToggle ? <button className="task-check" aria-label={item.state==='done'?'Reopen '+item.title:'Complete '+item.title} onClick={onToggle}>{item.state==='done'&&<Check size={14}/>}</button> : <span className={'item-symbol '+item.kind}><Icon size={18}/></span>}
     <button className="item-main" onClick={onEdit}><span className="item-title">{item.title}</span><span className="item-meta">{kindLabel(item.kind)}{item.startsAt ? ' · '+dateLabel(item.startsAt)+' · '+timeLabel(item.startsAt) : item.kind==='idea'?' · No rush':item.priority==='high'?' · Priority':''}</span></button>
     <button className="icon-button muted" onClick={onEdit} aria-label={(item.kind==='idea'?'Follow up on ':'Edit ')+item.title}><Clock3 size={17}/></button>
@@ -108,6 +110,9 @@ export function CapturePanel({uid,demo,onDemoCapture,onNotice}: {uid:string|null
   const textEntry = useRef<OutboxEntry | null>(null);
   const [pending,setPending] = useState<OutboxEntry[]>([]);const [online,setOnline] = useState(navigator.onLine);
   const [pendingImports,setPendingImports] = useState<DraftItem[]>([]);
+  const [localSpeech,setLocalSpeech] = useState(false);
+  useEffect(() => {if(!uid&&!demo)void localTranscriptionAvailable().then(available=>setLocalSpeech(Boolean(available)));},[uid,demo]);
+  const latestVoice = !uid&&!demo ? pending.find(entry=>entry.source==='voice'&&entry.phase==='queued') : undefined;
   useEffect(() => {try{if(text)sessionStorage.setItem(composeKey,text);else sessionStorage.removeItem(composeKey);}catch{}},[text,composeKey]);
   const refresh = () => {if(owner) void localEntries(owner).then(setPending).catch(() => setError('This browser could not open device storage.'));if(uid&&!demo)void draftItems(uid).then(setPendingImports).catch(()=>{});};
   const recorded = () => {refresh();if(uid&&!demo)void syncOutbox(uid);onNotice(demo?'Recording saved on this device. Example mode does not transcribe or sync.':'Thought saved on this device. You can return to your day.');};
@@ -142,7 +147,7 @@ export function CapturePanel({uid,demo,onDemoCapture,onNotice}: {uid:string|null
         {audio.recording?<Square size={24} fill="currentColor"/>:<Mic size={26}/>}<span>{audio.starting?'Opening microphone…':audio.recording?'Save my thought':'Tap to speak'}</span>
         {audio.recording&&<span className="record-time">{Math.floor(audio.seconds/60)}:{String(audio.seconds%60).padStart(2,'0')}</span>}
       </button>
-      <p className="microcopy">{audio.recording?'Tap to finish. No review needed.':'Speak naturally. We’ll help you make sense of it later.'}</p>
+      <p className="microcopy">{audio.recording?'Tap to finish. No review needed.':!uid&&!demo?(localSpeech?'Your transcript appears here after you stop.':'Audio stays saved here. Transcription is not connected yet.'):'Speak naturally. We’ll help you make sense of it later.'}</p>
       <div className="divider-label"><Keyboard size={14}/>or type or paste</div>
       <form onSubmit={e => {e.preventDefault();void saveText();}}>
         <label className="sr-only" htmlFor="thought-text">Your thought</label>
@@ -150,6 +155,12 @@ export function CapturePanel({uid,demo,onDemoCapture,onNotice}: {uid:string|null
         <div className="capture-footer"><span>No categories. No decisions.</span><button className="button primary" disabled={!text.trim()||busy}>{busy?'Saving…':'Save thought'}</button></div>
       </form>
       {lastSaved&&<div className="saved-confirmation"><strong><Check size={16}/>{demo?'Added to example':'Thought saved'}</strong><p>{lastSaved}</p><span>Find it in Today or Saved. No need to organize it now.</span></div>}
+      {latestVoice&&<div className="saved-confirmation voice-transcript" aria-live="polite">
+        <strong><Mic size={16}/>{latestVoice.text?'Voice thought':latestVoice.transcription==='transcribing'?'Transcribing your thought…':'Voice thought saved'}</strong>
+        {latestVoice.text?<p>{latestVoice.text}</p>:<p>{latestVoice.transcriptionError||(localSpeech?'Your words will appear here when transcription finishes.':'Transcription is not connected. Your audio is still saved.')}</p>}
+        {latestVoice.transcription==='failed'&&<button className="text-button" onClick={()=>void retryDeviceTranscription(latestVoice.id)}>Retry transcription</button>}
+        <span>Find this thought in Today or Saved.</span>
+      </div>}
       {(error||audio.error)&&<p className="error" role="alert">{error||audio.error}</p>}
       {error&&<div className="inline-actions"><button className="text-button" onClick={()=>{try{sessionStorage.setItem(composeKey,text);}catch{}location.reload();}}>Reload safely</button>{text&&<button className="text-button" onClick={()=>download(new Blob([text],{type:'text/plain'}),'my-thought.txt')}>Download my text</button>}</div>}
       {audio.rescue&&<button className="button secondary full" onClick={()=>download(audio.rescue!,'my-thought.'+(audio.rescue!.type.includes('mp4')?'m4a':'webm'))}><Download size={16}/>Download recording</button>}
@@ -159,7 +170,7 @@ export function CapturePanel({uid,demo,onDemoCapture,onNotice}: {uid:string|null
       <div className="sync-card">{!online&&<span className="pill">Offline</span>}
         {pendingImports.map(item=><div className="local-entry" key={item.id}><Clock3 size={15}/><div><strong>{item.title}</strong><small>{item.error||'Waiting to import into your cloud workspace.'}</small><div className="inline-actions"><button className="text-button" onClick={()=>void syncOutbox(uid!).then(refresh)}>Retry import</button><button className="text-button" onClick={()=>download(new Blob([JSON.stringify(item,null,2)],{type:'application/json'}),'thoughtsplat-draft.json')}>Download copy</button><button className="text-button danger" onClick={()=>{if(window.confirm('Discard this device draft?'))void removeDraftItem(item.id).then(refresh);}}>Discard</button></div></div></div>)}
         {pending.map(entry=><div className="local-entry" key={entry.id}>
-          <span>{entry.source==='voice'?<Mic size={15}/>:<Keyboard size={15}/>}</span><div><strong>{entry.source==='voice'?'Voice thought':entry.text.slice(0,50)}</strong><small>{entry.phase==='recording'?(audio.recording?'Recording…':'Unfinished recording'):entry.error||'Saved on this device · waiting to sync'}</small>
+          <span>{entry.source==='voice'?<Mic size={15}/>:<Keyboard size={15}/>}</span><div><strong>{entry.source==='voice'?'Voice thought':entry.text.slice(0,50)}</strong><small>{entry.phase==='recording'?(audio.recording?'Recording…':'Unfinished recording'):entry.transcription==='transcribing'?'Transcribing…':entry.transcriptionError||entry.error||(entry.transcription==='ready'?'Transcript saved on this device':'Saved on this device · waiting to sync')}</small>
           <div className="inline-actions">{entry.phase==='recording'&&!audio.recording&&entry.blob?.size ? <button className="text-button" onClick={()=>void retryLocal(entry).then(recorded)}>Recover recording</button>:null}
             {entry.phase==='queued'&&!demo&&uid&&<button className="text-button" onClick={()=>void retryLocal(entry).then(()=>syncOutbox(uid!))}><RotateCw size={13}/>Retry</button>}
             {entry.blob&&<button className="text-button" onClick={()=>download(entry.blob!,'thought.'+(entry.mimeType==='audio/mp4'?'m4a':'webm'))}>Download</button>}
