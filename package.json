@@ -2,7 +2,8 @@
   "name":"audiograffiti","version":"2.0.0","private":true,"type":"module",
   "engines":{"node":">=22.12.0"},
   "scripts":{
-    "dev":"vite --host 127.0.0.1","build":"tsc --noEmit && vite build",
+    "dev":"vite --host 127.0.0.1","build":"tsc --noEmit && vite build && tsc -p tsconfig.server.json",
+    "start":"node server-dist/index.js",
     "preview":"vite preview --host 127.0.0.1","test":"vitest run",
     "test:browser":"playwright test",
     "test:rules":"firebase emulators:exec --project demo-audiograffiti --only firestore,storage \"vitest run --config vitest.rules.config.ts\"",

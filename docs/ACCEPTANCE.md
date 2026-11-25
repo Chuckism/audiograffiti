@@ -2,6 +2,8 @@
 
 ## Automated coverage
 
+Render preparation: 27 unit tests and the client/server production build passed. The compiled password-protected server also passed desktop and phone browser checks for authentication, recording, transcription with stubbed AI, transcript persistence, and offline PWA reopening. Live Render deployment remains pending account connection and environment settings.
+
 Verified November 25, 2026: 23 unit tests and 20 browser tests across desktop and phone viewports passed for local transcription. Eight emulator tests and the server TypeScript build passed for the preceding cloud implementation. The client production build passed. A synthetic spoken sentence also passed through the real local transcription endpoint and OpenAI API. Cloud processing tests use stubbed AI responses; the deployed physical-device scenario below remains outstanding. The final voice-card color and label adjustment followed these checks; a separate visual check could not run because automatic approval review hit a usage limit.
 
 Unit tests exercise:

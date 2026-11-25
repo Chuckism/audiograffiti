@@ -37,6 +37,7 @@ yarn-error.log*
 /.preview
 /functions/.secret*
 /dist
+/server-dist
 /functions/lib
 /functions/node_modules
 /playwright-report

@@ -33,6 +33,8 @@ Copy .env.example to .env.local and fill in a **separate AudioGraffiti Firebase 
 
 ## Cloud setup
 
+For phone testing over HTTPS, use the [private Render preview setup](docs/RENDER.md). It includes hosted transcription while retaining device-only drafts until the Firebase setup below is completed.
+
 There is intentionally no production .firebaserc target. This app does not connect to, deploy over, or reuse IssueTrax's live data.
 
 1. Create/select a dedicated Firebase project. Enable email/password and Google authentication; register the hosting domain.
