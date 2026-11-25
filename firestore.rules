@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+    function validCapture(data) {
+      return data.keys().hasOnly(['source','text','mimeType','createdAt','updatedAt','timezone','status'])
+        && data.keys().hasAll(['source','text','mimeType','createdAt','updatedAt','timezone','status'])
+        && data.source in ['text','voice']
+        && data.text is string && data.text.size() <= 20000
+        && data.createdAt is number && data.createdAt > 946684800000
+        && data.createdAt <= request.time.toMillis() + 300000
+        && data.updatedAt is number
+        && data.timezone is string && data.timezone.size() <= 100
+        && (
+          (data.source == 'text' && data.text.size() > 0 && data.status == 'queued' && data.mimeType == '')
+          || (data.source == 'voice' && data.text == '' && data.status == 'uploading'
+            && data.mimeType in ['audio/webm','audio/mp4','audio/ogg','audio/wav','audio/mpeg'])
+        );
+    }
+    match /users/{uid} {
+      allow read: if owner(uid);
+      allow write: if false;
+      match /captures/{id} {
+        allow read: if owner(uid);
+        allow create: if owner(uid) && id.matches('^[a-zA-Z0-9_-]{1,128}$') && validCapture(request.resource.data);
+        allow update: if owner(uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reviewedAt'])
+          && resource.data.status == 'ready'
+          && request.resource.data.reviewedAt is number;
+        allow delete: if false;
+      }
+      match /items/{id} { allow read: if owner(uid); allow write: if false; }
+      match /proposals/{id} { allow read: if owner(uid); allow write: if false; }
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

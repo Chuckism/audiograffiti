@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ThoughtSplat preview · AudioGraffiti workspace
 
-## Getting Started
+**Speak your thoughts. Organize your day.**
 
-First, run the development server:
+A simple, mobile-first home for thoughts and to-dos. A thought can remain a thought, including when you give it a follow-up time. Purple thoughts, green to-dos, and blue events have labels and icons as well as color.
 
-```bash
+- **Capture:** one-tap voice recording, or type/paste without categorizing.
+- **Today:** review original thoughts and suggestions at your own pace.
+- **Calendar:** **Thoughts & To-dos** and **Events**, with shared conflict checking.
+- **Saved:** find thoughts, to-dos, notes, projects, and original captures. Manual changes do not require AI.
+
+The phone opens to Capture; desktop opens to Today. Installable PWA support, dark default theme, optional light theme.
+
+## Run locally
+
+Node **22.12+** is required. On Windows PowerShell, use npm.cmd if the npm PowerShell shim drops forwarded arguments.
+
+```sh
+npm ci
+cd functions
+npm ci
+cd ..
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Without Firebase configuration, the app opens an **empty device workspace**. Your own text, recordings, thoughts, to-dos, and calendar drafts persist in IndexedDB across reloads. They are explicitly marked as device-only and are not cloud-synced or AI-processed. After cloud setup and sign-in, use **Move drafts to my workspace** to bind them to that account. Originals upload first; project/item drafts follow. Copies remain until the server acknowledges them, with failed imports available for retry or download.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The optional ?demo=1 URL opens the separate illustrative workspace used by browser tests. Its sample planning changes reset on refresh. It is no longer the default. ThoughtSplat is the current preview wordmark; the repository and cloud identifiers remain AudioGraffiti.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Copy .env.example to .env.local and fill in a **separate AudioGraffiti Firebase project's** web settings to enable the real workspace. Existing non-VITE secrets are not included in the client bundle. Never put AI keys in VITE variables or public files.
 
-## Learn More
+## Cloud setup
 
-To learn more about Next.js, take a look at the following resources:
+There is intentionally no production .firebaserc target. This app does not connect to, deploy over, or reuse IssueTrax's live data.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Create/select a dedicated Firebase project. Enable email/password and Google authentication; register the hosting domain.
+2. Create a default Firestore database and Storage bucket in us-central1. Cloud Functions, scheduled recovery, and Storage require the appropriate billing plan. Confirm project and billing before deployment.
+3. Set public web config in .env.local; keep VITE_USE_EMULATORS=false for a real workspace.
+4. Install function dependencies and set the server secret:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```sh
+firebase functions:secrets:set OPENAI_API_KEY --project YOUR_AUDIOGRAFFITI_PROJECT
+npm run build
+firebase deploy --only firestore,storage,functions,hosting --project YOUR_AUDIOGRAFFITI_PROJECT
+```
 
-## Deploy on Vercel
+Deployment prompts for ASSIMILATION_MODEL (default gpt-4o-mini). Transcription uses whisper-1. The AI key and processing remain on the server. Align the function event region and bucket region.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Authenticated playback uses Firebase Storage getBlob. Configure bucket CORS for actual application origins using storage.cors.example.json. Do not use public download links for recordings. Keep recovery scheduler enabled. Set budget alerts and review Firebase quotas before opening registration.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Verification
+
+```sh
+npm test
+npm run build
+npm run functions:build
+npm run test:browser
+npm run test:rules
+```
+
+Browser tests use installed Microsoft Edge with desktop and phone viewports against the compiled PWA. Adjust the channel in playwright.config.ts for another browser.
+
+Rules tests use **demo-audiograffiti**, never a live project, and require Firebase CLI and **Java 21+**. They exercise real Firestore/Storage emulators. See [acceptance testing](docs/ACCEPTANCE.md) for the mandatory overnight scenario and physical-device checks.
+
+## Foundation and limits
+
+React/Firebase initialization and authentication patterns were adapted from the local IssueTrax project. Team approval, team-shared data, chat, issue phases, fix workflows, and the prior audiogram/payment screens are absent from this product. The original IssueTrax checkout and backend were not changed.
+
+For a connected workspace, Firestore and private Storage are authoritative. IndexedDB retains pending captures and explicitly imported device drafts until the server acknowledges them. Before cloud setup, the app clearly labels its separate device-only workspace. Upload retries preserve the same capture ID; originals are retained. Server jobs use transaction leases, bounded retries, deterministic proposal IDs, and scheduled recovery. Approvals and calendar edits check versions and conflicts transactionally.
+
+MVP limits: 5 minutes / 20 MiB per recording; 20,000 characters per text capture; 500 saved items; 12 suggestions per capture. Originals are paged; up to 200 pending suggestions load at a time. AI considers 150 recent saved items with bounded context excerpts. Google/Outlook calendar connections are not implemented.
+
+A PWA cannot guarantee recording/upload continuation after OS suspension. Once upload is acknowledged, server work continues without the phone. Read the [mobile evaluation](docs/MOBILE_EVALUATION.md) before marking mobile acceptance complete.

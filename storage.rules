@@ -1,0 +1,15 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/captures/{id}/audio {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if resource == null && request.auth != null && request.auth.uid == uid
+        && id.matches('^[a-zA-Z0-9_-]{1,128}$')
+        && request.resource.size > 0 && request.resource.size <= 20 * 1024 * 1024
+        && request.resource.contentType.matches('audio/(webm|mp4|ogg|wav|mpeg)')
+        && firestore.get(/databases/(default)/documents/users/$(uid)/captures/$(id)).data.status == 'uploading';
+      allow update, delete: if false;
+    }
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}

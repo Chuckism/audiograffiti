@@ -1,0 +1,1 @@
+{"name":"audiograffiti-functions","private":true,"main":"lib/index.js","engines":{"node":"22"},"scripts":{"build":"tsc"},"dependencies":{"firebase-admin":"^14.5.1","firebase-functions":"^7.4.0","openai":"^4.104.0"},"devDependencies":{"typescript":"^5.8.2","@types/node":"^22.0.0"}}

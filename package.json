@@ -1,35 +1,14 @@
 {
-  "name": "audiograffiti",
-  "version": "1.0.0",
-  "private": true,
-  "engines": {
-    "node": "18.x"
+  "name":"audiograffiti","version":"2.0.0","private":true,"type":"module",
+  "engines":{"node":">=22.12.0"},
+  "scripts":{
+    "dev":"vite --host 127.0.0.1","build":"tsc --noEmit && vite build",
+    "preview":"vite preview --host 127.0.0.1","test":"vitest run",
+    "test:browser":"playwright test",
+    "test:rules":"firebase emulators:exec --project demo-audiograffiti --only firestore,storage \"vitest run --config vitest.rules.config.ts\"",
+    "functions:build":"npm --prefix functions run build"
   },
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "postbuild": "echo 'Build completed successfully'"
-  },
-  "dependencies": {
-    "@clerk/nextjs": "^4.31.8",
-    "@stripe/stripe-js": "^7.9.0",
-    "autoprefixer": "^10.4.16",
-    "next": "^14.2.25",
-    "openai": "^4.24.7",
-    "postcss": "^8.4.32",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "stripe": "^18.5.0",
-    "tailwindcss": "^3.4.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.10.6",
-    "@types/react": "^18.2.46",
-    "@types/react-dom": "^18.2.18",
-    "eslint": "^8.56.0",
-    "eslint-config-next": "14.0.4",
-    "typescript": "^5.3.3"
-  }
+  "dependencies":{"@fontsource/dm-sans":"^5.2.0","@fontsource/manrope":"^5.2.0","firebase":"^12.19.0","idb":"^8.0.0","lucide-react":"^0.468.0","react":"^19.0.0","react-dom":"^19.0.0"},
+  "devDependencies":{"@firebase/rules-unit-testing":"^5.0.0","@playwright/test":"^1.56.0","@types/node":"^22.0.0","@types/react":"^19.0.0","@types/react-dom":"^19.0.0","@vitejs/plugin-react":"^6.3.0","fake-indexeddb":"^6.0.0","typescript":"^5.8.2","vite":"^8.3.8","vite-plugin-pwa":"^2.0.0","vitest":"^5.1.2"},
+  "overrides":{"@grpc/grpc-js":"^1.13.6","glob":"^14.0.2","minimatch":"^11.0.1"}
 }

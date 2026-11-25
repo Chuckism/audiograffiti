@@ -1,0 +1,10 @@
+import { chromium, devices } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+await mkdir('.preview',{recursive:true});
+const browser=await chromium.launch({channel:'msedge',headless:true});
+const desktop=await browser.newContext({viewport:{width:1440,height:1100}});
+const page=await desktop.newPage();await page.goto('http://127.0.0.1:5173/?demo=1');await page.getByRole('heading',{name:'Your thoughts, ready when you are.'}).waitFor();await page.screenshot({path:'.preview/desktop.png',fullPage:true});
+await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Calendar',exact:true}).click();await page.screenshot({path:'.preview/calendar.png',fullPage:true});
+const mobile=await browser.newContext({...devices['iPhone 13']});const phone=await mobile.newPage();await phone.goto('http://127.0.0.1:5173/?demo=1');await phone.getByRole('heading',{name:'What’s on your mind?'}).waitFor();await phone.screenshot({path:'.preview/mobile.png',fullPage:true});
+await browser.close();
+console.log('Preview screenshots saved.');
